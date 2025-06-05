@@ -30,4 +30,6 @@ Thumbs.db
 *.temp
 
 # バックアップファイル
-*.bak 
+*.bak ".env*"  
+"*.env"  
+".env.local" 

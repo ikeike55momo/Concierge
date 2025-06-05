@@ -1,75 +1,83 @@
 /**
- * 管理画面用システム統計API
+ * システム統計情報取得API
  * 
  * GET /api/admin/stats
- * - システム統計情報取得
- * - 店舗数、分析数等のサマリー
+ * - 総店舗数
+ * - アクティブ店舗数
+ * - 今日の分析数
+ * - 最終更新日
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { supabase } from '../../../../../lib/supabase';
 
-// 型定義
-interface SystemStats {
-  totalStores: number;
-  activeStores: number;
-  todayAnalyses: number;
-  lastUpdate: string;
-  performanceMetrics: {
-    avgResponseTime: number;
-    successRate: number;
-    totalRequests: number;
-  };
-  storageMetrics: {
-    totalDataSize: string;
-    csvUploads: number;
-    lastBackup: string;
-  };
-}
-
-/**
- * システム統計情報取得
- */
 export async function GET(request: NextRequest) {
   try {
-    // サンプル統計データ（将来的にSupabase統合予定）
-    const systemStats: SystemStats = {
-      totalStores: 385,
-      activeStores: 352,
-      todayAnalyses: 1247,
-      lastUpdate: new Date().toISOString(),
-      performanceMetrics: {
-        avgResponseTime: 234, // ms
-        successRate: 99.8, // %
-        totalRequests: 15687
-      },
-      storageMetrics: {
-        totalDataSize: '2.3 GB',
-        csvUploads: 142,
-        lastBackup: new Date(Date.now() - 86400000).toISOString() // 1日前
-      }
+    const today = new Date().toISOString().split('T')[0];
+    
+    // 統計情報を並列取得
+    const [
+      totalStoresResult,
+      activeStoresResult,
+      todayAnalysesResult,
+      lastUpdateResult
+    ] = await Promise.all([
+      // 総店舗数
+      (async () => {
+        const { data, error } = await supabase
+          .from('stores')
+          .select('id');
+        return error ? 0 : (data?.length || 0);
+      })(),
+      
+      // アクティブ店舗数
+      (async () => {
+        const { data, error } = await supabase
+          .from('stores')
+          .select('id')
+          .eq('is_active', true);
+        return error ? 0 : (data?.length || 0);
+      })(),
+      
+      // 今日の分析数（score_analyses）
+      (async () => {
+        const { data, error } = await supabase
+          .from('score_analyses')
+          .select('id')
+          .eq('analysis_date', today);
+        return error ? 0 : (data?.length || 0);
+      })(),
+      
+      // 最終更新日（store_performances）
+      (async () => {
+        const { data, error } = await supabase
+          .from('store_performances')
+          .select('date')
+          .order('date', { ascending: false })
+          .limit(1);
+        return error ? today : (data?.[0]?.date || today);
+      })()
+    ]);
+
+    const stats = {
+      totalStores: totalStoresResult,
+      activeStores: activeStoresResult,
+      todayAnalyses: todayAnalysesResult,
+      lastUpdate: lastUpdateResult
     };
 
-    const response = {
+    return NextResponse.json({
       success: true,
-      data: systemStats,
-      meta: {
-        generatedAt: new Date().toISOString(),
-        version: '1.0.0'
-      }
-    };
-
-    return NextResponse.json(response);
+      stats,
+      message: 'システム統計情報を取得しました'
+    });
 
   } catch (error) {
-    console.error('API エラー:', error);
-    
-    return NextResponse.json(
-      { 
-        success: false,
-        error: 'サーバーエラーが発生しました',
-        details: error instanceof Error ? error.message : '不明なエラー'
-      },
-      { status: 500 }
-    );
+    console.error('システム統計情報取得エラー:', error);
+    return NextResponse.json({
+      success: false,
+      error: 'システム統計情報の取得に失敗しました',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    }, { status: 500 });
   }
 } 

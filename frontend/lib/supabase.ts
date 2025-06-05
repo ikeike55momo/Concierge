@@ -10,12 +10,8 @@
 import { createClient } from '@supabase/supabase-js';
 
 // Supabase設定
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Supabase環境変数が設定されていません');
-}
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
 
 /**
  * Supabaseクライアントインスタンス
@@ -210,14 +206,15 @@ export const dbHelpers = {
    * 店舗ランキング取得
    */
   async getStoreRankings(limit = 50) {
-    const { data, error } = await typedSupabase
-      .from('store_rankings')
-      .select('*')
-      .order('rank', { ascending: true })
-      .limit(limit);
-    
-    if (error) throw error;
-    return data;
+    // 環境変数チェック
+    if (!supabaseUrl || !supabaseAnonKey) {
+      throw new Error('Supabase環境変数が設定されていません');
+    }
+
+    // 実データから生成（ビューを使用せず直接生成）
+    console.log('実データから店舗ランキングを生成します');
+    const generatedRankings = await this.generateStoreRankings();
+    return generatedRankings.slice(0, limit);
   },
 
   /**
@@ -226,22 +223,141 @@ export const dbHelpers = {
   async getStoreAnalysis(storeId: string, date?: string) {
     const targetDate = date || new Date().toISOString().split('T')[0];
     
-    const { data, error } = await typedSupabase
-      .from('score_analyses')
-      .select(`
-        *,
-        stores:store_id (
-          store_name,
-          prefecture,
-          nearest_station
-        )
-      `)
-      .eq('store_id', storeId)
-      .eq('analysis_date', targetDate)
-      .single();
-    
-    if (error) throw error;
-    return data;
+    try {
+      // 1. スコア分析データを取得
+      const { data: analysisData, error: analysisError } = await typedSupabase
+        .from('score_analyses')
+        .select(`
+          *,
+          stores:store_id (
+            store_name,
+            prefecture,
+            nearest_station
+          )
+        `)
+        .eq('store_id', storeId)
+        .eq('analysis_date', targetDate)
+        .single();
+      
+      if (analysisError) {
+        console.warn('分析データ取得エラー:', analysisError);
+        // 分析データがない場合は基本的な計算で代替
+        return await this.generateBasicAnalysis(storeId, targetDate);
+      }
+
+      // 2. パフォーマンス履歴を取得
+      const { data: performanceData } = await typedSupabase
+        .from('store_performances')
+        .select('*')
+        .eq('store_id', storeId)
+        .order('date', { ascending: false })
+        .limit(7);
+
+      // 3. 店舗情報を取得
+      const { data: storeData } = await typedSupabase
+        .from('stores')
+        .select('*')
+        .eq('store_id', storeId)
+        .single();
+
+      // データを統合してフロントエンド用の形式に変換
+      return {
+        storeId: analysisData.store_id,
+        storeName: storeData?.store_name || '店舗名不明',
+        totalScore: analysisData.total_score,
+        tomorrowWinRate: analysisData.predicted_win_rate,
+        confidence: analysisData.confidence,
+        comment: analysisData.llm_comment,
+        recommendedMachines: analysisData.recommended_machines || [],
+        playStrategy: analysisData.play_strategy || {
+          recommendedEntryTime: '10:30-11:00',
+          targetMachines: [],
+          avoidMachines: [],
+          strategy: 'AI分析結果を確認中...',
+          warnings: []
+        },
+        performanceData: performanceData || [],
+        tomorrowPrediction: {
+          totalDifference: Math.round(analysisData.predicted_win_rate * 2000),
+          averageDifference: analysisData.predicted_win_rate * 5,
+          confidence: analysisData.confidence
+        },
+        analysisRationale: {
+          baseScore: analysisData.base_score,
+          eventBonus: analysisData.event_bonus,
+          machinePopularity: analysisData.machine_popularity,
+          accessScore: analysisData.access_score,
+          personalAdjustment: analysisData.personal_adjustment
+        }
+      };
+    } catch (error) {
+      console.error('店舗分析取得エラー:', error);
+      throw new Error('店舗分析データの取得に失敗しました');
+    }
+  },
+
+  /**
+   * 基本分析データ生成（分析データがない場合の代替）
+   */
+  async generateBasicAnalysis(storeId: string, targetDate: string) {
+    try {
+      // 店舗基本情報を取得
+      const { data: storeData } = await typedSupabase
+        .from('stores')
+        .select('*')
+        .eq('store_id', storeId)
+        .single();
+
+      if (!storeData) {
+        throw new Error('店舗データが見つかりません');
+      }
+
+      // 最近のパフォーマンスデータを取得
+      const { data: recentPerformance } = await typedSupabase
+        .from('store_performances')
+        .select('*')
+        .eq('store_id', storeId)
+        .order('date', { ascending: false })
+        .limit(7);
+
+      // 基本的なスコア計算
+      const avgDifference = recentPerformance?.reduce((sum, p) => sum + p.average_difference, 0) / (recentPerformance?.length || 1) || 300;
+      const baseScore = Math.min(Math.max(Math.round(avgDifference / 10), 30), 90);
+      const winRate = Math.min(Math.max(Math.round(avgDifference / 8), 40), 85);
+
+      return {
+        storeId,
+        storeName: storeData.store_name,
+        totalScore: baseScore,
+        tomorrowWinRate: winRate,
+        confidence: 70,
+        comment: '基本分析による予測値です',
+        recommendedMachines: [],
+        playStrategy: {
+          recommendedEntryTime: '10:30-11:00',
+          targetMachines: storeData.popular_machines || [],
+          avoidMachines: [],
+          strategy: '人気機種を中心に様子を見ながら立ち回ってください',
+          warnings: ['分析データが不足しています']
+        },
+        performanceData: recentPerformance || [],
+        tomorrowPrediction: {
+          totalDifference: Math.round(winRate * 2000),
+          averageDifference: avgDifference,
+          confidence: 70
+        },
+        analysisRationale: {
+          baseScore: baseScore,
+          eventBonus: 0,
+          machinePopularity: 0,
+          accessScore: 0,
+          personalAdjustment: 0
+        }
+      };
+    } catch (error) {
+      console.error('基本分析生成エラー:', error);
+      throw new Error('分析データの生成に失敗しました');
+    }
   },
 
   /**
@@ -290,5 +406,108 @@ export const dbHelpers = {
     
     if (error) throw error;
     return data;
+  },
+
+  /**
+   * 実データから店舗ランキング生成
+   */
+  async generateStoreRankings() {
+    try {
+      // 1. 店舗データ取得
+      const { data: stores } = await typedSupabase
+        .from('stores')
+        .select('*')
+        .eq('is_active', true);
+
+      if (!stores || stores.length === 0) {
+        throw new Error('店舗データが見つかりません');
+      }
+
+      // 2. 各店舗の最新パフォーマンス取得
+      const rankings: Array<{
+        store_id: string;
+        store_name: string;
+        prefecture: string;
+        nearest_station: string;
+        total_score: number;
+        predicted_win_rate: number;
+        llm_comment: string;
+        analysis_date: string;
+        rank?: number;
+      }> = [];
+      for (const store of stores) {
+        const { data: recentPerformances } = await typedSupabase
+          .from('store_performances')
+          .select('*')
+          .eq('store_id', store.store_id)
+          .order('date', { ascending: false })
+          .limit(7);
+
+        if (recentPerformances && recentPerformances.length > 0) {
+          // 基本スコア計算
+          const avgDifference = recentPerformances.reduce((sum, p) => sum + p.average_difference, 0) / recentPerformances.length;
+          const totalScore = Math.min(Math.max(Math.round(avgDifference / 10), 30), 95);
+          const winRate = Math.min(Math.max(Math.round(avgDifference / 8), 40), 85);
+
+          rankings.push({
+            store_id: store.store_id,
+            store_name: store.store_name,
+            prefecture: store.prefecture,
+            nearest_station: store.nearest_station,
+            total_score: totalScore,
+            predicted_win_rate: winRate,
+            llm_comment: this.generateBasicComment(totalScore),
+            analysis_date: new Date().toISOString().split('T')[0]
+          });
+        }
+      }
+
+      // 3. スコア順でソートしてランク付け
+      rankings.sort((a, b) => b.total_score - a.total_score);
+      rankings.forEach((ranking, index) => {
+        ranking.rank = index + 1;
+      });
+
+      return rankings;
+    } catch (error) {
+      console.error('店舗ランキング生成エラー:', error);
+      throw new Error('店舗ランキングの生成に失敗しました');
+    }
+  },
+
+  /**
+   * 基本コメント生成
+   */
+  generateBasicComment(score: number): string {
+    if (score >= 80) return 'おすすめ！高い出玉期待度';
+    if (score >= 65) return '安定した出玉が期待できる';
+    if (score >= 50) return '平均的な店舗';
+    return '様子見推奨';
+  },
+
+  /**
+   * データベース状態チェック
+   */
+  async checkDatabaseStatus() {
+    try {
+      const [storesCount, performancesCount, analysesCount] = await Promise.all([
+        typedSupabase.from('stores').select('*', { count: 'exact', head: true }),
+        typedSupabase.from('store_performances').select('*', { count: 'exact', head: true }),
+        typedSupabase.from('score_analyses').select('*', { count: 'exact', head: true })
+      ]);
+
+      return {
+        connected: true,
+        stores: storesCount.count || 0,
+        performances: performancesCount.count || 0,
+        analyses: analysesCount.count || 0,
+        hasData: (storesCount.count || 0) > 0
+      };
+    } catch (error) {
+      return {
+        connected: false,
+        error: error instanceof Error ? error.message : '不明なエラー'
+      };
+    }
   }
 }; 

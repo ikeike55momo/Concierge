@@ -95,79 +95,14 @@ export default function StoreDetailPage() {
         const response = await fetch(`/api/analysis/${storeId}`);
         const result = await response.json();
         
-        if (result.success && result.data) {
+                if (result.success && result.data) {
           setStoreAnalysis(result.data);
-                } else {
+        } else {
           console.error('API Error:', result.error);
           throw new Error('API Error: ' + (result.error || 'Unknown error'));
         }
       } catch (err) {
         console.error('Fetch Error:', err);
-        // フォールバック用サンプルデータ
-        const sampleData: StoreAnalysis = {
-            storeId,
-            storeName: 'アイランド秋葉原店',
-            totalScore: 85,
-            tomorrowWinRate: 78,
-            confidence: 87,
-            comment: '今日は北斗シリーズが熱い！',
-            recommendedMachines: [
-            {
-              machineId: 'M001',
-              machineName: '北斗の拳 宿命',
-              unitNumber: '101-103',
-              expectedDifference: 1500,
-              reason: '過去3日間で安定した出玉実績'
-            },
-            {
-              machineId: 'M002', 
-              machineName: 'ゴッドイーター3',
-              unitNumber: '205-207',
-              expectedDifference: 1200,
-              reason: 'イベント日の期待値が高い'
-            },
-            {
-              machineId: 'M003',
-              machineName: 'バイオハザード RE:2',
-              unitNumber: '315-318',
-              expectedDifference: 980,
-              reason: '朝一リセット狙いに最適'
-            }
-          ],
-          playStrategy: {
-            recommendedEntryTime: '10:30-11:00',
-            targetMachines: ['北斗の拳 101-103番台', 'ゴッドイーター 205-207番台'],
-            avoidMachines: ['マイジャグラー系', '低設定が疑われる角台'],
-            strategy: '朝一は北斗の拳シリーズを狙い、空いていればゴッドイーターも検討。昼過ぎからは様子を見て台移動を検討してください。',
-            warnings: [
-              '混雑時は無理な追いかけは禁物',
-              '予算管理を徹底し、損切りラインを明確に',
-              'イベント日のため通常より混雑が予想されます'
-            ]
-          },
-          performanceData: [
-            { date: '2025-05-20', totalDifference: 125000, averageDifference: 325, averageGames: 6516 },
-            { date: '2025-05-21', totalDifference: 153000, averageDifference: 398, averageGames: 5623 },
-            { date: '2025-05-22', totalDifference: 125000, averageDifference: 325, averageGames: 6097 },
-            { date: '2025-05-23', totalDifference: 132000, averageDifference: 345, averageGames: 6810 },
-            { date: '2025-05-24', totalDifference: 121000, averageDifference: 314, averageGames: 6564 }
-          ],
-          tomorrowPrediction: {
-            totalDifference: 140000,
-            averageDifference: 364,
-            confidence: 87
-          },
-          analysisRationale: {
-            baseScore: 70,
-            eventBonus: 8,
-            machinePopularity: 5,
-            accessScore: 2,
-            personalAdjustment: 0
-          }
-        };
-        
-        setStoreAnalysis(sampleData);
-      } catch (err) {
         const errorMessage = err instanceof Error ? err.message : '分析データの取得に失敗しました';
         setError(errorMessage);
       } finally {

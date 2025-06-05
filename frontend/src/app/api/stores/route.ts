@@ -8,7 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-// import { dbHelpers } from '../../../lib/supabase';
+import { dbHelpers } from '../../../../lib/supabase';
 
 // 型定義
 interface StoreRanking {
@@ -56,19 +56,39 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // サンプルデータを取得（将来的にSupabase統合予定）
-    let storeRankings: StoreRanking[] = getSampleStoreData();
+    // Supabaseからデータを取得
+    const storeRankings = await dbHelpers.getStoreRankings(query.limit || 50);
     
-    // フィルタリング処理
+    if (!storeRankings || storeRankings.length === 0) {
+      return NextResponse.json({
+        success: true,
+        data: [],
+        meta: {
+          total: 0,
+          limit: query.limit,
+          offset: query.offset || 0,
+          filters: {
+            search: query.search,
+            prefecture: query.prefecture
+          },
+          source: 'database',
+          message: 'データが見つかりませんでした'
+        }
+      });
+    }
+
+    // クライアント側でのフィルタリング（今後DB側に移行予定）
+    let filteredRankings = storeRankings;
+    
     if (query.prefecture) {
-      storeRankings = storeRankings.filter((store: StoreRanking) => 
+      filteredRankings = filteredRankings.filter((store: any) => 
         store.prefecture === query.prefecture
       );
     }
     
     if (query.search) {
       const searchTerm = query.search.toLowerCase();
-      storeRankings = storeRankings.filter((store: StoreRanking) =>
+      filteredRankings = filteredRankings.filter((store: any) =>
         store.store_name.toLowerCase().includes(searchTerm) ||
         store.nearest_station.toLowerCase().includes(searchTerm)
       );
@@ -76,30 +96,23 @@ export async function GET(request: NextRequest) {
     
     // オフセット適用
     if (query.offset && query.offset > 0) {
-      storeRankings = storeRankings.slice(query.offset);
+      filteredRankings = filteredRankings.slice(query.offset);
     }
     
-    // 件数制限適用
-    if (query.limit) {
-      storeRankings = storeRankings.slice(0, query.limit);
-    }
-
-    // レスポンス形成
-    const response = {
+    return NextResponse.json({
       success: true,
-      data: storeRankings,
+      data: filteredRankings,
       meta: {
-        total: storeRankings.length,
+        total: filteredRankings.length,
         limit: query.limit,
         offset: query.offset || 0,
         filters: {
           search: query.search,
           prefecture: query.prefecture
-        }
+        },
+        source: 'database'
       }
-    };
-
-    return NextResponse.json(response);
+    });
 
   } catch (error) {
     console.error('API エラー:', error);
@@ -107,73 +120,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       { 
         success: false,
-        error: 'サーバーエラーが発生しました',
+        error: 'データベース接続エラーが発生しました',
         details: error instanceof Error ? error.message : '不明なエラー'
       },
       { status: 500 }
     );
   }
-}
-
-/**
- * サンプル店舗データ（データベース接続エラー時のフォールバック）
- */
-function getSampleStoreData(): StoreRanking[] {
-  return [
-    {
-      store_id: '1',
-      store_name: 'アイランド秋葉原店',
-      prefecture: '東京都',
-      nearest_station: 'JR秋葉原駅',
-      total_score: 85,
-      predicted_win_rate: 78,
-      llm_comment: '今日は北斗シリーズが熱い！新台入替で期待度UP',
-      rank: 1,
-      analysis_date: new Date().toISOString().split('T')[0]
-    },
-    {
-      store_id: '2',
-      store_name: 'JOYPIT神田店',
-      prefecture: '東京都',
-      nearest_station: 'JR神田駅',
-      total_score: 72,
-      predicted_win_rate: 68,
-      llm_comment: 'ジャグラー系が安定。イベント日でおすすめ',
-      rank: 2,
-      analysis_date: new Date().toISOString().split('T')[0]
-    },
-    {
-      store_id: '3',
-      store_name: 'ガイア渋谷店',
-      prefecture: '東京都',
-      nearest_station: 'JR渋谷駅',
-      total_score: 58,
-      predicted_win_rate: 52,
-      llm_comment: '安定した出玉が期待できる優良店',
-      rank: 3,
-      analysis_date: new Date().toISOString().split('T')[0]
-    },
-    {
-      store_id: '4',
-      store_name: 'エスパス新宿南口店',
-      prefecture: '東京都',
-      nearest_station: 'JR新宿駅',
-      total_score: 54,
-      predicted_win_rate: 49,
-      llm_comment: '平日狙いがおすすめ。アクセス良好',
-      rank: 4,
-      analysis_date: new Date().toISOString().split('T')[0]
-    },
-    {
-      store_id: '5',
-      store_name: 'パーラー太陽池袋店',
-      prefecture: '東京都',
-      nearest_station: 'JR池袋駅',
-      total_score: 48,
-      predicted_win_rate: 45,
-      llm_comment: '様子見推奨。週末は混雑予想',
-      rank: 5,
-      analysis_date: new Date().toISOString().split('T')[0]
-    }
-  ];
 } 

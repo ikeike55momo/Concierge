@@ -1,125 +1,46 @@
 /**
- * ホームページ
+ * ホーム画面
  * 
- * パチスロ店舗ランキングのメインページ
- * - 店舗検索・フィルタ機能
- * - 店舗ランキング一覧表示
- * - 明日のおすすめ店舗表示
+ * 「明日のおすすめホール」「地元から探す」の2つの選択肢を提供
+ * ユーザーの選択に基づいて店舗一覧画面に遷移
  */
 
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { useRouter } from 'next/navigation';
-import StoreCard from '../../components/StoreCard';
 
-interface StoreRanking {
-  storeId: string;
-  storeName: string;
-  score: number;
-  predictedWinRate: number;
-  comment: string;
-  rank: number;
-  prefecture: string;
-  nearestStation: string;
-}
-
-export default function Home() {
+export default function HomePage() {
   const router = useRouter();
-  const [storeRankings, setStoreRankings] = useState<StoreRanking[]>([]);
-  const [filteredStores, setFilteredStores] = useState<StoreRanking[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedPrefecture, setSelectedPrefecture] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
-
-  // サンプルデータ（後でAPI呼び出しに置き換え）
-  useEffect(() => {
-    const fetchStoreRankings = async () => {
-      setIsLoading(true);
-      
-      try {
-        const response = await fetch('/api/stores');
-        const result = await response.json();
-        
-        if (result.success && result.data) {
-          const apiData: StoreRanking[] = result.data.map((store: any) => ({
-            storeId: store.store_id,
-            storeName: store.store_name,
-            score: store.total_score,
-            predictedWinRate: store.predicted_win_rate,
-            comment: store.llm_comment,
-            rank: store.rank,
-            prefecture: store.prefecture,
-            nearestStation: store.nearest_station
-          }));
-          
-          setStoreRankings(apiData);
-          setFilteredStores(apiData);
-        } else {
-          console.error('API Error:', result.error);
-          // フォールバック用サンプルデータ
-          setStoreRankings([]);
-          setFilteredStores([]);
-        }
-      } catch (error) {
-        console.error('Fetch Error:', error);
-        // フォールバック用サンプルデータ
-        setStoreRankings([]);
-        setFilteredStores([]);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchStoreRankings();
-  }, []);
-
-  // 検索・フィルタ処理
-  useEffect(() => {
-    let filtered = storeRankings;
-
-    // 都道府県フィルタ
-    if (selectedPrefecture) {
-      filtered = filtered.filter(store => store.prefecture === selectedPrefecture);
-    }
-
-    // 検索クエリフィルタ
-    if (searchQuery) {
-      filtered = filtered.filter(store => 
-        store.storeName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        store.nearestStation.toLowerCase().includes(searchQuery.toLowerCase())
-      );
-    }
-
-    setFilteredStores(filtered);
-  }, [searchQuery, selectedPrefecture, storeRankings]);
 
   /**
-   * 店舗カードクリック時の処理
-   * @param storeId - 店舗ID
+   * おすすめホール選択時の処理
    */
-  const handleStoreClick = (storeId: string) => {
-    router.push(`/store/${storeId}`);
+  const handleRecommendedStores = () => {
+    router.push('/stores?type=recommended');
+  };
+
+  /**
+   * 地元から探す選択時の処理
+   */
+  const handleLocalStores = () => {
+    router.push('/stores?type=local');
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gradient-to-br from-pachislot-red-50 to-pachislot-orange-50">
       {/* ヘッダー */}
-      <header className="bg-white shadow-sm border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <header className="bg-white shadow-sm">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-3">
-              <div className="text-2xl font-bold text-pachislot-red-600">🎰</div>
+              <div className="text-3xl">🎰</div>
               <h1 className="text-xl font-bold text-gray-900">
-                パチスロ店舗ランキング
+                パチスロコンシェルジュ
               </h1>
             </div>
-            
             <nav className="hidden md:flex items-center gap-6">
-              <a href="/" className="text-pachislot-red-600 font-medium">
-                ホーム
-              </a>
-              <a href="/admin" className="text-gray-600 hover:text-gray-900">
+              <a href="/admin" className="text-gray-600 hover:text-gray-900 text-sm">
                 管理画面
               </a>
             </nav>
@@ -128,125 +49,89 @@ export default function Home() {
       </header>
 
       {/* メインコンテンツ */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* ヒーローセクション */}
-        <div className="text-center mb-8">
+      <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        <div className="text-center mb-12">
           <h2 className="text-3xl font-bold text-gray-900 mb-4">
-            明日のおすすめ店舗
+            今日のパチスロはどこで遊ぶ？
           </h2>
           <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-            AI分析による明日の勝率予測とおすすめ店舗をランキング形式でお届け
+            AIが分析した最新データで、あなたにぴったりのホールを見つけましょう。
+            店舗の実績・イベント情報・機種の傾向を総合的に判断してランキングを作成しています。
           </p>
         </div>
 
-        {/* 検索・フィルタセクション */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-8">
-          <div className="flex flex-col md:flex-row gap-4">
-            {/* 検索ボックス */}
-            <div className="flex-1">
-              <label htmlFor="search" className="block text-sm font-medium text-gray-700 mb-2">
-                店舗名・駅名で検索
-              </label>
-              <div className="relative">
-                <input
-                  type="text"
-                  id="search"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="例: アイランド、秋葉原駅"
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pachislot-orange-500 focus:border-transparent"
-                />
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                  </svg>
+        {/* 選択ボタン */}
+        <div className="grid md:grid-cols-2 gap-8 max-w-3xl mx-auto">
+          {/* 明日のおすすめホール */}
+          <div className="group cursor-pointer" onClick={handleRecommendedStores}>
+            <div className="bg-white rounded-2xl shadow-lg hover:shadow-xl transition-all duration-300 transform hover:-translate-y-2 p-8">
+              <div className="text-center">
+                <div className="w-20 h-20 bg-gradient-to-br from-pachislot-red-500 to-pachislot-red-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <span className="text-3xl text-white">⭐</span>
                 </div>
+                <h3 className="text-2xl font-bold text-gray-900 mb-4">
+                  明日のおすすめホール
+                </h3>
+                <p className="text-gray-600 mb-6 leading-relaxed">
+                  AIが過去のデータとイベント情報を分析し、
+                  明日勝率の高い店舗をランキング形式でご紹介
+                </p>
+                <div className="bg-pachislot-red-50 rounded-lg p-4 mb-6">
+                  <div className="flex items-center justify-center gap-2 text-pachislot-red-700">
+                    <span className="text-sm">🔥</span>
+                    <span className="text-sm font-medium">
+                      予測勝率・推奨機種・入店時間まで完全サポート
+                    </span>
+                  </div>
+                </div>
+                <button className="w-full bg-gradient-to-r from-pachislot-red-500 to-pachislot-red-600 text-white font-semibold py-4 px-6 rounded-xl hover:from-pachislot-red-600 hover:to-pachislot-red-700 transition-all duration-300 transform group-hover:scale-105">
+                  おすすめを見る
+                </button>
               </div>
             </div>
+          </div>
 
-            {/* 都道府県フィルタ */}
-            <div className="md:w-48">
-              <label htmlFor="prefecture" className="block text-sm font-medium text-gray-700 mb-2">
-                都道府県
-              </label>
-              <select
-                id="prefecture"
-                value={selectedPrefecture}
-                onChange={(e) => setSelectedPrefecture(e.target.value)}
-                className="w-full py-2 px-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pachislot-orange-500 focus:border-transparent"
-              >
-                <option value="">すべて</option>
-                <option value="東京都">東京都</option>
-                <option value="神奈川県">神奈川県</option>
-                <option value="埼玉県">埼玉県</option>
-                <option value="千葉県">千葉県</option>
-              </select>
+          {/* 地元から探す */}
+          <div className="group cursor-pointer" onClick={handleLocalStores}>
+            <div className="bg-white rounded-2xl shadow-lg hover:shadow-xl transition-all duration-300 transform hover:-translate-y-2 p-8">
+              <div className="text-center">
+                <div className="w-20 h-20 bg-gradient-to-br from-pachislot-orange-500 to-pachislot-orange-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <span className="text-3xl text-white">📍</span>
+                </div>
+                <h3 className="text-2xl font-bold text-gray-900 mb-4">
+                  地元から探す
+                </h3>
+                <p className="text-gray-600 mb-6 leading-relaxed">
+                  エリア・駅名から通いやすい店舗を検索。
+                  地元の隠れた優良店も見つけられます
+                </p>
+                <div className="bg-pachislot-orange-50 rounded-lg p-4 mb-6">
+                  <div className="flex items-center justify-center gap-2 text-pachislot-orange-700">
+                    <span className="text-sm">🚃</span>
+                    <span className="text-sm font-medium">
+                      アクセス良好・近場の優良店をピックアップ
+                    </span>
+                  </div>
+                </div>
+                <button className="w-full bg-gradient-to-r from-pachislot-orange-500 to-pachislot-orange-600 text-white font-semibold py-4 px-6 rounded-xl hover:from-pachislot-orange-600 hover:to-pachislot-orange-700 transition-all duration-300 transform group-hover:scale-105">
+                  地元で探す
+                </button>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* ランキング一覧 */}
-        <div className="mb-8">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-2xl font-bold text-gray-900">
-              店舗ランキング
-            </h3>
-            <div className="text-sm text-gray-500">
-              {filteredStores.length}件の店舗
-            </div>
+        {/* フッター情報 */}
+        <div className="mt-16 text-center">
+          <div className="bg-white rounded-xl shadow-md p-6 max-w-2xl mx-auto">
+            <h4 className="font-semibold text-gray-900 mb-3">📊 データについて</h4>
+            <p className="text-sm text-gray-600 leading-relaxed">
+              当サービスは過去3ヶ月の実績データを基に、Claude AIが店舗分析を行っています。
+              各店舗のスコアは「過去実績」「イベント効果」「機種人気度」「アクセス」等を総合的に判断しています。
+            </p>
           </div>
-
-          {isLoading ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {[...Array(6)].map((_, index) => (
-                <div key={index} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 animate-pulse">
-                  <div className="h-4 bg-gray-200 rounded w-3/4 mb-4"></div>
-                  <div className="h-3 bg-gray-200 rounded w-1/2 mb-2"></div>
-                  <div className="h-3 bg-gray-200 rounded w-2/3"></div>
-                </div>
-              ))}
-            </div>
-          ) : filteredStores.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredStores.map((store) => (
-                <StoreCard
-                  key={store.storeId}
-                  storeId={store.storeId}
-                  storeName={store.storeName}
-                  score={store.score}
-                  predictedWinRate={store.predictedWinRate}
-                  comment={store.comment}
-                  rank={store.rank}
-                  onClick={() => handleStoreClick(store.storeId)}
-                />
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-12">
-              <div className="text-gray-400 mb-4">
-                <svg className="mx-auto h-12 w-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.172 16.172a4 4 0 015.656 0M9 12h6m-6-4h6m2 5.291A7.962 7.962 0 0112 15c-2.34 0-4.467-.881-6.08-2.33" />
-                </svg>
-              </div>
-              <h3 className="text-lg font-medium text-gray-900 mb-2">
-                該当する店舗が見つかりません
-              </h3>
-              <p className="text-gray-500">
-                検索条件を変更してお試しください
-              </p>
-            </div>
-          )}
         </div>
       </main>
-
-      {/* フッター */}
-      <footer className="bg-white border-t border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="text-center text-gray-500 text-sm">
-            <p>&copy; 2025 パチスロ店舗ランキング. All rights reserved.</p>
-          </div>
-        </div>
-      </footer>
     </div>
   );
 }
