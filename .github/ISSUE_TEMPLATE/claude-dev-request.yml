@@ -1,0 +1,68 @@
+name: 🤖 Claude Code 開発依頼
+description: Claude Code APIを使った自動開発の依頼（フルワークフロー実行）
+title: "[CLAUDE-DEV] "
+labels: ["claude-dev", "auto-development"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 🔄 自動実行フロー
+        このIssueを作成すると、以下のフローが自動実行されます：
+        1. 📋 要件定義作成 → `/docs/requirements/`
+        2. 📝 CLAUDE.md修正 → プロジェクト概要を更新
+        3. 💻 コーディング → 指示に基づいて実装
+        4. 🧪 動作確認 → エラーがないことを確認してから納品
+        5. ✅ 完了記録 → `.claude/completed_tasks.md`
+
+  - type: dropdown
+    id: dev-type
+    attributes:
+      label: 開発タイプ
+      description: 何を開発しますか？
+      options:
+        - "🏗️ 新機能開発"
+        - "🔧 既存機能改善"
+        - "🐛 バグ修正"
+        - "📝 コード整理・リファクタリング"
+        - "🧪 テスト追加"
+    validations:
+      required: true
+
+  - type: textarea
+    id: claude-prompt
+    attributes:
+      label: 開発内容の説明
+      description: 何を実装してほしいか、具体的に記述してください
+      placeholder: |
+        【実装したい内容】
+        例：ユーザー認証機能を追加したい
+        
+        【詳細】
+        - ログイン/ログアウト機能
+        - セッション管理
+        - パスワードリセット機能
+        
+        【技術的な要望】
+        - JWT認証を使用
+        - TypeScriptで実装
+    validations:
+      required: true
+
+  - type: textarea
+    id: target-files
+    attributes:
+      label: 関連ファイル（任意）
+      description: 特定のファイルを指定したい場合のみ記入
+      placeholder: |
+        - src/auth/login.ts
+        - src/components/LoginForm.tsx
+        - tests/auth.test.ts
+
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: 実行確認
+      description: フルワークフローの実行を確認
+      options:
+        - label: 上記のフルワークフローを実行することを理解しました
+          required: true

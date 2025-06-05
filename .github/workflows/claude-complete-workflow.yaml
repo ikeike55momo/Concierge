@@ -1,0 +1,289 @@
+name: 🔄 Claude Code Complete Workflow
+
+on:
+  issues:
+    types: 
+      - opened
+  issue_comment:
+    types: 
+      - created
+    
+# 並列実行を許可
+concurrency:
+  group: claude-dev-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  complete-workflow:
+    # 条件を修正：Issueがclaudeラベル付きで作成された場合、またはコメントでClaudeがメンションされた場合
+    if: |
+      (github.event_name == 'issues' && contains(github.event.issue.labels.*.name, 'claude-dev')) ||
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude'))
+    runs-on: ubuntu-latest
+    strategy:
+      max-parallel: 10
+    
+    steps:
+      - name: 🔍 Detect trigger type
+        id: trigger
+        run: |
+          if [ "${{ github.event_name }}" = "issue_comment" ]; then
+            echo "trigger=comment" >> $GITHUB_OUTPUT
+            echo "issue_number=${{ github.event.issue.number }}" >> $GITHUB_OUTPUT
+            # コメント内容をBase64エンコードして安全に保存
+            COMMENT_BODY=$(echo "${{ github.event.comment.body }}" | base64 -w 0)
+            echo "comment_body_base64=${COMMENT_BODY}" >> $GITHUB_OUTPUT
+          else
+            echo "trigger=issue" >> $GITHUB_OUTPUT
+            echo "issue_number=${{ github.event.issue.number }}" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: 🔀 Generate unique branch name
+        id: branch
+        run: |
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          RANDOM_ID=$(openssl rand -hex 4)
+          ISSUE_NUM=${{ steps.trigger.outputs.issue_number }}
+          BRANCH_NAME="claude-dev/issue-${ISSUE_NUM}-${TIMESTAMP}-${RANDOM_ID}"
+          echo "branch_name=${BRANCH_NAME}" >> $GITHUB_OUTPUT
+          echo "🌳 Branch: ${BRANCH_NAME}"
+          
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+          
+      - name: 🌳 Create and checkout new branch
+        run: |
+          git config --global user.name "Claude Code Bot"
+          git config --global user.email "claude-bot@example.com"
+          git fetch origin main
+          git checkout -b ${{ steps.branch.outputs.branch_name }} origin/main
+          
+      - name: 🔒 Setup workspace isolation
+        run: |
+          WORKSPACE_DIR="claude-workspace-${{ steps.trigger.outputs.issue_number }}"
+          mkdir -p "${WORKSPACE_DIR}"
+          echo "workspace_dir=${WORKSPACE_DIR}" >> $GITHUB_ENV
+          
+      - name: 📊 Check for conflicts
+        id: conflict-check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "🔍 Checking for potential conflicts..."
+          # エラーハンドリングを改善
+          if ACTIVE_PRS=$(gh pr list --state open --label claude-dev --json number,headRefName 2>/dev/null); then
+            echo "active_prs=${ACTIVE_PRS}" >> $GITHUB_OUTPUT
+          else
+            echo "active_prs=[]" >> $GITHUB_OUTPUT
+            echo "⚠️ Failed to fetch PR list, continuing anyway"
+          fi
+          
+      - name: 📝 Get issue details
+        id: issue-details
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueNumber = ${{ steps.trigger.outputs.issue_number }};
+            const issue = await github.rest.issues.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber
+            });
+            
+            // コメントトリガーの場合は、Base64デコードしてコメント内容を取得
+            let instructions = issue.data.body || '';
+            if ('${{ steps.trigger.outputs.trigger }}' === 'comment') {
+              const commentBase64 = '${{ steps.trigger.outputs.comment_body_base64 }}';
+              if (commentBase64) {
+                instructions = Buffer.from(commentBase64, 'base64').toString('utf-8');
+              }
+            }
+            
+            // 出力をサニタイズ
+            const sanitizeOutput = (str) => {
+              return str ? str.replace(/"/g, '\\"').replace(/\n/g, '\\n') : '';
+            };
+            
+            core.setOutput('title', sanitizeOutput(issue.data.title));
+            core.setOutput('body', sanitizeOutput(issue.data.body));
+            core.setOutput('instructions', sanitizeOutput(instructions));
+            
+      - name: 🔍 Debug API Status
+        run: |
+          echo "🔍 Checking Anthropic API key..."
+          if [ -z "${{ secrets.ANTHROPIC_API_KEY }}" ]; then
+            echo "❌ ANTHROPIC_API_KEY is not set!"
+            exit 1
+          else
+            echo "✅ ANTHROPIC_API_KEY is set"
+          fi
+          
+      - name: 🤖 Execute Complete Workflow
+        id: claude-action
+        continue-on-error: true  # エラーでも続行
+        uses: anthropics/claude-code-action@beta
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ steps.branch.outputs.branch_name }}
+          command: |
+            あなたはプロフェッショナルな日本語対応の開発アシスタントです。
+            すべての応答とコード内のコメントは日本語で記述してください。
+            
+            # 作業情報
+            Issue番号: #${{ steps.trigger.outputs.issue_number }}
+            タイトル: ${{ steps.issue-details.outputs.title }}
+            トリガー: ${{ steps.trigger.outputs.trigger }}
+            作業ブランチ: ${{ steps.branch.outputs.branch_name }}
+            
+            # 指示内容
+            ${{ steps.issue-details.outputs.instructions }}
+            
+            # 並列実行の注意事項
+            - このタスクは他のタスクと並列で実行される可能性があります
+            - ファイルの編集時は競合に注意してください
+            - 新規ファイルの作成を優先し、既存ファイルの大幅な変更は避けてください
+            
+            # 以下のフルワークフローを実行してください：
+            
+            ## 1. 📋 要件定義作成
+            - Issueの内容を分析して要件定義を作成
+            - `/docs/requirements/issue-${{ steps.trigger.outputs.issue_number }}.md`に保存
+            - 要件定義には以下を含める：
+              - 機能概要
+              - 技術仕様
+              - 実装スコープ
+              - 制約事項
+              - 他のIssueとの依存関係（もしあれば）
+            
+            ## 2. 📝 CLAUDE.md修正
+            - プロジェクトのCLAUDE.mdを更新
+            - 新しい機能/修正内容を追記
+            - Issue番号を参照として記載
+            - 競合を避けるため、セクションの最後に追記する形式で
+            
+            ## 3. 💻 コーディング
+            - Issueの「開発内容の説明」に基づいて実装
+            - 開発タイプに応じた適切な実装を行う
+            - コードは既存のコーディング規約に従う
+            - 可能な限り新規ファイルで実装し、既存ファイルの変更は最小限に
+            - **重要**: コード内のコメントはすべて日本語で記述すること
+            
+            ## 4. 🧪 動作確認・テスト実施
+            - 実装したコードを実際に実行して動作確認
+            - エラーがないことを確認
+            - 以下の観点でテスト：
+              - 基本的な動作が正常に行われるか
+              - エラーハンドリングが適切か
+              - 期待される出力が得られるか
+              - 他の機能に影響を与えていないか
+            - 問題があれば修正してから次のステップへ
+            
+            ## 5. ✅ 完了記録
+            - `.claude/completed_tasks.md`に以下の形式で記録：
+            
+            ```markdown
+            ## タスク: ${{ steps.issue-details.outputs.title }}
+            - Issue: #${{ steps.trigger.outputs.issue_number }}
+            - 日時: $(date +"%Y年%m月%d日 %H:%M:%S")
+            - ブランチ: ${{ steps.branch.outputs.branch_name }}
+            - ステータス: ✅ 完了
+            - トリガー: ${{ steps.trigger.outputs.trigger }}
+            - ファイル:
+              - 作成: [作成したファイル一覧]
+              - 変更: [修正したファイル一覧]
+            - テスト:
+              - 動作確認: ✅ 完了
+              - エラーチェック: ✅ パス
+              - 確認内容: [実行した確認内容]
+            - 概要: [実装内容の要約]
+            - 並列実行: あり
+            ```
+            
+            すべての作業において日本語でのコミュニケーションを心がけ、
+            コード内のコメントも日本語で記述してください。
+            
+      - name: 🔍 Check Claude Action Result
+        if: steps.claude-action.outcome == 'failure'
+        run: |
+          echo "❌ Claude Action failed!"
+          echo "This might be due to:"
+          echo "1. API credit balance is too low"
+          echo "2. API key is invalid"
+          echo "3. Rate limiting"
+          echo ""
+          echo "Please check your Anthropic API account and credits."
+          
+      - name: 🔍 Post-execution conflict check
+        if: steps.claude-action.outcome == 'success'
+        run: |
+          git fetch origin main
+          if ! git merge-base --is-ancestor origin/main HEAD; then
+            echo "⚠️ Main branch has been updated during execution"
+            git rebase origin/main || echo "❌ Conflicts detected, manual resolution required"
+          fi
+            
+      - name: 📝 Create Pull Request
+        if: steps.claude-action.outcome == 'success'
+        id: cpr
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "🤖 Complete workflow for issue #${{ steps.trigger.outputs.issue_number }}"
+          title: "🤖 [CLAUDE-DEV] ${{ steps.issue-details.outputs.title }}"
+          body: |
+            ## 🔄 自動生成されたPR
+            
+            このPRはIssue #${{ steps.trigger.outputs.issue_number }} に基づいて自動生成されました。
+            
+            ### 🌳 ブランチ情報
+            - 作業ブランチ: `${{ steps.branch.outputs.branch_name }}`
+            - ベースブランチ: `main`
+            - トリガー: ${{ steps.trigger.outputs.trigger }}
+            
+            Closes #${{ steps.trigger.outputs.issue_number }}
+          branch: ${{ steps.branch.outputs.branch_name }}
+          delete-branch: true
+          
+      - name: 💬 Comment on Issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const claudeOutcome = '${{ steps.claude-action.outcome }}';
+            let message = '';
+            
+            if (claudeOutcome === 'failure') {
+              message = `❌ ワークフローの実行に失敗しました
+              
+              ### エラー情報
+              - Anthropic APIのクレジット残高が不足している可能性があります
+              - APIキーを確認してください
+              - レート制限に達している可能性があります
+              
+              詳細はActionsログを確認してください。`;
+            } else {
+              message = `🤖 フルワークフローが完了しました！
+              
+              ### 📊 実行結果
+              - 🌳 作業ブランチ: \`${{ steps.branch.outputs.branch_name }}\`
+              - 🔗 PR: #${{ steps.cpr.outputs.pull-request-number }}
+              - ⏰ 実行時刻: ${new Date().toISOString()}
+              - 🔄 トリガー: ${{ steps.trigger.outputs.trigger }}
+              
+              レビューをお願いします！`;
+            }
+            
+            github.rest.issues.createComment({
+              issue_number: ${{ steps.trigger.outputs.issue_number }},
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: message
+            })

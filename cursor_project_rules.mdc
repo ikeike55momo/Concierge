@@ -1,0 +1,153 @@
+---
+description: Apply these rules when creating the project
+globs:
+alwaysApply: true
+---
+## Project Overview
+
+*   **Type:** Web Application MVP
+*   **Description:** Develop an MVP to manage, score, search, and display pachislot store data for 3 stores in Tokyo. The system will use uploaded CSV data, integrate it, calculate scores, and provide ranking and analysis pages with LLM-generated insights.
+*   **Primary Goal:** Enable administrators to upload CSV data, process and aggregate store performance, compute nightly scores, and present ranked lists and detailed analyses with LLM-generated comments and strategies.
+
+## Project Structure
+
+### Framework-Specific Routing
+
+*   **Directory Rules:**
+    *   Next.js 14 (App Router): Use `app/[route]/page.tsx` for pages and `app/[route]/route.ts` for API handlers.
+    *   Next.js (Pages Router): Use `pages/[route].tsx` and `pages/api/[endpoint].ts`.
+    *   React Router 6: Use `src/routes/` with `createBrowserRouter({ path, element })` definitions.
+
+### Core Directories
+
+*   **Versioned Structure:**
+    *   `app/`: Next.js 14 App Router pages and layouts.
+    *   `app/api/`: Next.js 14 Route Handlers for API endpoints.
+    *   `src/components/`: Reusable React components written in TypeScript.
+    *   `src/lib/`: Utility functions, data-fetching hooks, and API clients.
+    *   `supabase/functions/`: Supabase Edge Functions (TypeScript).
+    *   `styles/`: Tailwind CSS configuration and global styles (if needed).
+
+### Key Files
+
+*   `app/layout.tsx`: Next.js 14 root layout (HTML, Head, global providers).
+*   `app/page.tsx`: Next.js 14 root page (Top page with filters).
+*   `app/ranking/tomorrow/page.tsx`: Tomorrow’s ranking list page.
+*   `app/store/[id]/page.tsx`: Store detail analysis page with charts.
+*   `app/admin/upload/page.tsx`: CSV upload interface (React Dropzone).
+*   `app/auth/login/page.tsx`: Admin login flow (Server Actions).
+*   `app/api/ranking/tomorrow/route.ts`: GET handler for `/api/ranking/tomorrow`.
+*   `app/api/analysis/[store_id]/tomorrow/route.ts`: GET handler for store analysis.
+*   `app/api/llm/generate-comment/route.ts`: POST handler for comment generation.
+*   `app/api/llm/generate-strategy/route.ts`: POST handler for strategy generation.
+*   `app/api/admin/upload/route.ts`: POST handler for CSV upload.
+*   `supabase/functions/score-run.ts`: Nightly batch function for scoring.
+
+## Tech Stack Rules
+
+*   next@14: App Router required, no `getInitialProps`, use server components by default.
+*   react@18: Hooks-based, no class components, use `useTransition` for large UI updates.
+*   typescript@5: `strict: true`, no `any` except for legacy code.
+*   tailwindcss@3: JIT mode, purge unused classes, use prefix for custom components.
+*   chart.js@4: Use `react-chartjs-2`, dynamic imports for charts.
+*   @supabase/supabase-js@2: Use Edge Functions, env var naming `SUPABASE_URL`, `SUPABASE_KEY`.
+*   vercel@latest: Include `vercel.json` for rewrites and environment settings.
+*   papaparse@5: Use `Papa.parse` with `{ header: true, worker: true, step }` for large CSVs.
+*   react-dropzone@14: Functional components with hooks, restrict `accept: '.csv'`.
+*   claude-api@latest: Async/await, rate-limit management, error fallback to OpenAI.
+*   openai@4: Streaming responses, retry on 429, use `OpenAI` client.
+
+## PRD Compliance
+
+*   "Page load < 3s, search < 2s, LLM < 5s": must implement code splitting and caching.
+*   "Start with 3 stores, plan to scale to 10, then 100, then 6000.": design data models and pagination accordingly.
+
+## App Flow Integration
+
+*   Next.js 14 Auth Flow → `app/auth/login/page.tsx` uses server actions for email/password login via Supabase Auth.
+*   Next.js 14 CSV Upload Flow → `app/admin/upload/page.tsx` with React Dropzone; POST to `/api/admin/upload/route.ts` stores files in Supabase Storage and triggers validation.
+*   Next.js 14 Ranking Flow → `app/ranking/tomorrow/page.tsx` fetches `/api/ranking/tomorrow` via React Server Components; displays color-coded list with LLM comments.
+*   Next.js 14 Store Detail Flow → `app/store/[id]/page.tsx` fetches `/api/analysis/[id]/tomorrow`, renders charts with Chart.js and strategies from LLM.
+
+## Best Practices
+
+*   Next.js 14
+    *   Favor Server Components for data-heavy pages.
+    *   Use Route Handlers for all API logic under `app/api`.
+    *   Co-locate styles and tests within each route folder.
+
+*   React 18
+    *   Use functional components and hooks (`useState`, `useEffect`, `useMemo`).
+    *   Leverage `React.memo` and `useTransition` for performance.
+    *   Implement Error Boundaries at route-level.
+
+*   TypeScript 5
+    *   Enable `strict` and `noImplicitAny`.
+    *   Define typed API response interfaces.
+    *   Use Zod or `io-ts` for schema validation.
+
+*   Tailwind CSS 3
+    *   Use JIT and purge unused styles.
+    *   Centralize theme colors in `tailwind.config.js` (red and orange scheme).
+    *   Use utility classes; avoid custom CSS files.
+
+*   Chart.js
+    *   Dynamically import charts to reduce initial bundle.
+    *   Use `react-chartjs-2` wrappers.
+    *   Optimize datasets and options for responsiveness.
+
+*   Supabase (@supabase/supabase-js 2)
+    *   Use Edge Functions for scoring and CSV processing.
+    *   Enforce Row-Level Security in the database.
+    *   Store files in Supabase Storage with metadata in `csv_files` table.
+
+*   Vercel
+    *   Define preview and production environments in `vercel.json`.
+    *   Use Environment Variables for Supabase and LLM keys.
+    *   Enable automatic PR previews.
+
+*   PapaParse 5
+    *   Parse large CSVs in a Web Worker context.
+    *   Validate headers and data types before complete ingestion.
+    *   Show real-time progress UI during parsing.
+
+*   React Dropzone 14
+    *   Restrict to CSV mime types.
+    *   Provide clear error messages for invalid files.
+    *   Use `useCallback` for performance in drop handlers.
+
+*   Claude API
+    *   Use exponential backoff for rate limits.
+    *   Cache common prompts and reuse responses.
+    *   Fallback to OpenAI on failure.
+
+*   OpenAI API 4
+    *   Stream responses to client for faster UI updates.
+    *   Implement retry logic with jitter.
+    *   Rotate API keys via environment variables.
+
+## Rules
+
+*   Derive folder/file patterns directly from `techStackDoc` versions.
+*   If Next.js 14 App Router: Enforce `app/` directory with nested route folders; no `pages/`.
+*   If Pages Router: Use `pages/*.tsx` flat structure; no `app/`.
+*   Mirror this logic for React Router, SvelteKit, etc.
+*   Never mix version patterns (e.g., no `pages/` in App Router projects).
+
+## Rules Metrics
+
+Before starting the project development, create a metrics file in the root of the project called `cursor_metrics.md`.
+
+### Instructions:
+
+*   Each time a cursor rule is used as context, update `cursor_metrics.md`.
+*   Use the following format for `cursor_metrics.md`:
+
+    # Rules Metrics
+
+    ## Usage
+    The number of times rules is used as context
+
+    *   rule-name.mdc: 5
+    *   another-rule.mdc: 2
+    *   ...other rules
