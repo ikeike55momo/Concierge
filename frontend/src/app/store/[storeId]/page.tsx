@@ -92,19 +92,26 @@ export default function StoreDetailPage() {
       setError(null);
       
       try {
-        // TODO: 実際のAPI呼び出しに置き換え
-        // const response = await fetch(`/api/analysis/${storeId}/tomorrow`);
-        // const data = await response.json();
+        const response = await fetch(`/api/analysis/${storeId}`);
+        const result = await response.json();
         
-        // サンプルデータ
+        if (result.success && result.data) {
+          setStoreAnalysis(result.data);
+                } else {
+          console.error('API Error:', result.error);
+          throw new Error('API Error: ' + (result.error || 'Unknown error'));
+        }
+      } catch (err) {
+        console.error('Fetch Error:', err);
+        // フォールバック用サンプルデータ
         const sampleData: StoreAnalysis = {
-          storeId,
-          storeName: 'アイランド秋葉原店',
-          totalScore: 85,
-          tomorrowWinRate: 78,
-          confidence: 87,
-          comment: '今日は北斗シリーズが熱い！',
-          recommendedMachines: [
+            storeId,
+            storeName: 'アイランド秋葉原店',
+            totalScore: 85,
+            tomorrowWinRate: 78,
+            confidence: 87,
+            comment: '今日は北斗シリーズが熱い！',
+            recommendedMachines: [
             {
               machineId: 'M001',
               machineName: '北斗の拳 宿命',

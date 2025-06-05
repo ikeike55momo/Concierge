@@ -37,47 +37,38 @@ export default function Home() {
     const fetchStoreRankings = async () => {
       setIsLoading(true);
       
-      // TODO: 実際のAPI呼び出しに置き換え
-      // const response = await fetch('/api/ranking/tomorrow');
-      // const data = await response.json();
-      
-      // サンプルデータ
-      const sampleData: StoreRanking[] = [
-        {
-          storeId: '1',
-          storeName: 'アイランド秋葉原店',
-          score: 85,
-          predictedWinRate: 78,
-          comment: '今日は北斗シリーズが熱い！',
-          rank: 1,
-          prefecture: '東京都',
-          nearestStation: 'JR秋葉原駅'
-        },
-        {
-          storeId: '2', 
-          storeName: 'マルハン新宿東宝ビル店',
-          score: 72,
-          predictedWinRate: 65,
-          comment: 'イベント日で期待大',
-          rank: 2,
-          prefecture: '東京都',
-          nearestStation: 'JR新宿駅'
-        },
-        {
-          storeId: '3',
-          storeName: 'ガイア渋谷店',
-          score: 58,
-          predictedWinRate: 52,
-          comment: '安定した出玉が期待',
-          rank: 3,
-          prefecture: '東京都',
-          nearestStation: 'JR渋谷駅'
+      try {
+        const response = await fetch('/api/stores');
+        const result = await response.json();
+        
+        if (result.success && result.data) {
+          const apiData: StoreRanking[] = result.data.map((store: any) => ({
+            storeId: store.store_id,
+            storeName: store.store_name,
+            score: store.total_score,
+            predictedWinRate: store.predicted_win_rate,
+            comment: store.llm_comment,
+            rank: store.rank,
+            prefecture: store.prefecture,
+            nearestStation: store.nearest_station
+          }));
+          
+          setStoreRankings(apiData);
+          setFilteredStores(apiData);
+        } else {
+          console.error('API Error:', result.error);
+          // フォールバック用サンプルデータ
+          setStoreRankings([]);
+          setFilteredStores([]);
         }
-      ];
-      
-      setStoreRankings(sampleData);
-      setFilteredStores(sampleData);
-      setIsLoading(false);
+      } catch (error) {
+        console.error('Fetch Error:', error);
+        // フォールバック用サンプルデータ
+        setStoreRankings([]);
+        setFilteredStores([]);
+      } finally {
+        setIsLoading(false);
+      }
     };
 
     fetchStoreRankings();
