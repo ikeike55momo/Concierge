@@ -38,7 +38,7 @@ interface ScoreSettings {
 }
 
 export default function AdminPage() {
-  const [activeTab, setActiveTab] = useState<'upload' | 'scoring' | 'stores' | 'settings' | 'database'>('upload');
+  const [activeTab, setActiveTab] = useState<'upload' | 'scoring' | 'stores' | 'machines' | 'settings' | 'database'>('upload');
   const [systemStats, setSystemStats] = useState<SystemStats | null>(null);
   const [scoreSettings, setScoreSettings] = useState<ScoreSettings>({
     baseScoreWeight: 0.4,
@@ -55,6 +55,11 @@ export default function AdminPage() {
     message: '' 
   });
   const [forceUpdate, setForceUpdate] = useState(false);
+  const [machines, setMachines] = useState<any[]>([]);
+  const [editingMachine, setEditingMachine] = useState<any>(null);
+  const [stores, setStores] = useState<any[]>([]);
+  const [selectedStoreDetails, setSelectedStoreDetails] = useState<any>(null);
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
 
   // システム統計情報取得
   useEffect(() => {
@@ -75,6 +80,44 @@ export default function AdminPage() {
 
     fetchSystemStats();
   }, [forceUpdate]);
+
+  // 機種データ取得
+  useEffect(() => {
+    const fetchMachines = async () => {
+      if (activeTab === 'machines') {
+        try {
+          const response = await fetch('/api/admin/machines');
+          const data = await response.json();
+          if (data.success) {
+            setMachines(data.machines);
+          }
+        } catch (error) {
+          console.error('機種データ取得エラー:', error);
+        }
+      }
+    };
+
+    fetchMachines();
+  }, [activeTab, forceUpdate]);
+
+  // 店舗データ取得
+  useEffect(() => {
+    const fetchStores = async () => {
+      if (activeTab === 'stores') {
+        try {
+          const response = await fetch('/api/admin/stores');
+          const data = await response.json();
+          if (data.success) {
+            setStores(data.stores);
+          }
+        } catch (error) {
+          console.error('店舗データ取得エラー:', error);
+        }
+      }
+    };
+
+    fetchStores();
+  }, [activeTab, forceUpdate]);
 
   /**
    * スコア設定保存
@@ -256,98 +299,158 @@ export default function AdminPage() {
   };
 
   /**
-   * サンプルデータ挿入
+   * サンプルデータ挿入（無効化済み）
    */
   const handleInitDatabase = async () => {
-    if (!confirm('サンプルデータを挿入しますか？既存のデータが上書きされる可能性があります。')) {
-      return;
-    }
-
-    setIsLoading(true);
-    try {
-      const response = await fetch('/api/admin/init-db', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'init' })
-      });
-      
-      const data = await response.json();
-      
-      if (data.success) {
-        setMessage({ type: 'success', text: 'サンプルデータの挿入が完了しました' });
-        // 状態を再チェック
-        await handleCheckDatabase();
-      } else {
-        setMessage({ type: 'error', text: data.error || 'サンプルデータ挿入に失敗しました' });
-      }
-    } catch (err) {
-      setMessage({ type: 'error', text: 'サンプルデータ挿入エラー' });
-    } finally {
-      setIsLoading(false);
-      setTimeout(() => setMessage(null), 3000);
-    }
+    setMessage({ 
+      type: 'info', 
+      text: 'サンプルデータ挿入機能は無効化されています。実データのCSVアップロードをご利用ください。' 
+    });
+    setTimeout(() => setMessage(null), 5000);
   };
 
   /**
-   * CSV ファイルアップロード処理
+   * CSVファイルアップロード処理
    */
-  const handleCsvUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+  const handleFileUpload = async (file: File) => {
     if (!file) return;
-
-    // ファイル形式チェック
-    if (!file.name.endsWith('.csv')) {
-      setMessage({ type: 'error', text: 'CSVファイルを選択してください' });
-      setTimeout(() => setMessage(null), 3000);
-      return;
-    }
-
-    setUploadProgress({ uploading: true, message: 'アップロード中...' });
-
+    
+    setUploadProgress({ uploading: true, message: 'CSVファイルを処理中...' });
+    
     try {
-      const formData = new FormData();
-      formData.append('file', file);
+      const csvText = await file.text();
       
-      // 強制更新フラグを追加
-      if (forceUpdate) {
-        formData.append('force', 'true');
-      }
-
       const response = await fetch('/api/admin/csv-upload', {
         method: 'POST',
-        body: formData
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          csvData: csvText,
+          // dataTypeは自動判定させる
+        })
       });
 
       const result = await response.json();
-
+      
       if (result.success) {
         setUploadProgress({ 
           uploading: false, 
           message: `✅ ${result.message}`,
-          details: result
+          details: result.details
         });
-        setMessage({ 
-          type: 'success', 
-          text: `${file.name} を正常に処理しました（${result.processedCount}件）` 
-        });
+        setMessage({ type: 'success', text: result.message });
+        setForceUpdate(!forceUpdate); // データを再取得
       } else {
-        throw new Error(result.error || 'アップロードに失敗しました');
+        setUploadProgress({ 
+          uploading: false, 
+          message: `❌ ${result.error}`,
+          details: result.details
+        });
+        setMessage({ type: 'error', text: result.error });
       }
-    } catch (error: any) {
-      setUploadProgress({ 
-        uploading: false, 
-        message: `❌ エラー: ${error.message}` 
-      });
-      setMessage({ type: 'error', text: error.message });
-    } finally {
-      // 結果を5秒後にクリア
+      
       setTimeout(() => {
         setUploadProgress({ uploading: false, message: '' });
         setMessage(null);
       }, 5000);
       
-      // ファイル入力をリセット
-      event.target.value = '';
+    } catch (error) {
+      console.error('ファイルアップロードエラー:', error);
+      setUploadProgress({ 
+        uploading: false, 
+        message: `❌ アップロードエラー: ${error instanceof Error ? error.message : 'Unknown error'}`
+      });
+      setMessage({ type: 'error', text: 'ファイルのアップロードに失敗しました' });
+      
+      setTimeout(() => {
+        setUploadProgress({ uploading: false, message: '' });
+        setMessage(null);
+      }, 5000);
+    }
+  };
+
+  /**
+   * 機種スコア更新
+   */
+  const handleUpdateMachineScore = async (machineId: string, newScore: number) => {
+    setIsLoading(true);
+    try {
+      const response = await fetch('/api/admin/machines/score', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ machineId, popularityScore: newScore })
+      });
+
+      const data = await response.json();
+      
+      if (data.success) {
+        setMessage({ type: 'success', text: '機種スコアを更新しました' });
+        setForceUpdate(!forceUpdate);
+        setEditingMachine(null);
+      } else {
+        setMessage({ type: 'error', text: data.error || '更新に失敗しました' });
+      }
+      
+      setTimeout(() => setMessage(null), 3000);
+    } catch (error) {
+      console.error('機種スコア更新エラー:', error);
+      setMessage({ type: 'error', text: '機種スコアの更新に失敗しました' });
+      setTimeout(() => setMessage(null), 3000);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  /**
+   * 機種一括スコア更新
+   */
+  const handleBulkUpdateScores = async () => {
+    if (!confirm('全機種のスコアを再計算しますか？')) return;
+
+    setIsLoading(true);
+    try {
+      const response = await fetch('/api/admin/machines/recalculate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      const data = await response.json();
+      
+      if (data.success) {
+        setMessage({ type: 'success', text: `${data.updatedCount}件の機種スコアを再計算しました` });
+        setForceUpdate(!forceUpdate);
+      } else {
+        setMessage({ type: 'error', text: data.error || '再計算に失敗しました' });
+      }
+      
+      setTimeout(() => setMessage(null), 3000);
+    } catch (error) {
+      console.error('機種スコア再計算エラー:', error);
+      setMessage({ type: 'error', text: '機種スコアの再計算に失敗しました' });
+      setTimeout(() => setMessage(null), 3000);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  /**
+   * 店舗詳細データ取得
+   */
+  const handleViewStoreDetails = async (storeId: string) => {
+    try {
+      const response = await fetch(`/api/admin/stores/${storeId}/details`);
+      const data = await response.json();
+      
+      if (data.success) {
+        setSelectedStoreDetails(data);
+        setShowDetailsModal(true);
+      } else {
+        setMessage({ type: 'error', text: data.error });
+        setTimeout(() => setMessage(null), 3000);
+      }
+    } catch (error) {
+      console.error('店舗詳細取得エラー:', error);
+      setMessage({ type: 'error', text: '店舗詳細の取得に失敗しました' });
+      setTimeout(() => setMessage(null), 3000);
     }
   };
 
@@ -383,7 +486,11 @@ export default function AdminPage() {
                    <input
                      type="file"
                      accept=".csv"
-                     onChange={handleCsvUpload}
+                     onChange={(e) => {
+                       if (e.target.files) {
+                         handleFileUpload(e.target.files[0]);
+                       }
+                     }}
                      disabled={uploadProgress.uploading}
                      className="block w-full text-sm text-gray-500
                        file:mr-4 file:py-2 file:px-4
@@ -418,25 +525,41 @@ export default function AdminPage() {
                  </div>
 
                  {/* アップロード状況 */}
-                 {uploadProgress.message && (
-                   <div className={`p-3 rounded-md ${
-                     uploadProgress.uploading 
-                       ? 'bg-blue-50 text-blue-700 border border-blue-200' 
-                       : uploadProgress.message.includes('✅')
-                         ? 'bg-green-50 text-green-700 border border-green-200'
-                         : 'bg-red-50 text-red-700 border border-red-200'
-                   }`}>
-                     <div className="flex items-center">
-                       {uploadProgress.uploading && (
-                         <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-700 mr-2"></div>
-                       )}
-                       <span className="font-medium">{uploadProgress.message}</span>
+                 {uploadProgress.uploading && (
+                   <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                     <div className="flex items-center gap-2 mb-2">
+                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
+                       <span className="text-blue-800 text-sm font-medium">処理中...</span>
                      </div>
-                     
+                     <p className="text-blue-700 text-sm">{uploadProgress.message}</p>
+                   </div>
+                 )}
+
+                 {!uploadProgress.uploading && uploadProgress.message && (
+                   <div className={`mt-4 p-3 border rounded-lg ${
+                     uploadProgress.message.startsWith('✅') 
+                       ? 'bg-green-50 border-green-200 text-green-800' 
+                       : 'bg-red-50 border-red-200 text-red-800'
+                   }`}>
+                     <p className="text-sm font-medium">{uploadProgress.message}</p>
                      {uploadProgress.details && (
-                       <div className="mt-2 text-sm">
-                         <p>タイプ: {uploadProgress.details.csvType}</p>
-                         <p>処理件数: {uploadProgress.details.processedCount}</p>
+                       <div className="mt-2 text-xs space-y-1">
+                         <div>データ種別: <span className="font-medium">{uploadProgress.details.dataType}</span></div>
+                         <div>処理件数: <span className="font-medium">{uploadProgress.details.processedCount}</span></div>
+                         <div>保存件数: <span className="font-medium">{uploadProgress.details.savedCount}</span></div>
+                         {uploadProgress.details.errorCount > 0 && (
+                           <div>エラー件数: <span className="font-medium text-red-600">{uploadProgress.details.errorCount}</span></div>
+                         )}
+                         {uploadProgress.details.errors && uploadProgress.details.errors.length > 0 && (
+                           <details className="mt-2">
+                             <summary className="cursor-pointer text-xs">エラー詳細を表示</summary>
+                             <div className="mt-1 pl-2 border-l-2 border-gray-300">
+                               {uploadProgress.details.errors.map((error: string, index: number) => (
+                                 <div key={index} className="text-xs text-red-600">{error}</div>
+                               ))}
+                             </div>
+                           </details>
+                         )}
                        </div>
                      )}
                    </div>
@@ -579,38 +702,273 @@ export default function AdminPage() {
               </div>
 
               <div className="divide-y divide-gray-200">
-                {/* サンプル店舗リスト */}
-                {[
-                  { id: '1', name: 'アイランド秋葉原店', status: 'active', prefecture: '東京都', lastUpdate: '2025-05-25' },
-                  { id: '2', name: 'JOYPIT神田店', status: 'active', prefecture: '東京都', lastUpdate: '2025-05-25' },
-                  { id: '3', name: 'エスパス渋谷本店', status: 'inactive', prefecture: '東京都', lastUpdate: '2025-05-24' },
-                ].map((store) => (
-                  <div key={store.id} className="p-4 hover:bg-gray-50">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                        <div className={`w-3 h-3 rounded-full ${store.status === 'active' ? 'bg-green-500' : 'bg-gray-400'}`}></div>
-                        <div>
-                          <h4 className="font-medium text-gray-900">{store.name}</h4>
-                          <p className="text-sm text-gray-500">{store.prefecture} • 最終更新: {store.lastUpdate}</p>
+                {stores.length === 0 ? (
+                  <div className="p-8 text-center text-gray-500">
+                    店舗データがありません。データベースを確認してください。
+                  </div>
+                ) : (
+                  stores.map((store) => (
+                    <div key={store.store_id} className="p-4 hover:bg-gray-50">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                          <div className={`w-3 h-3 rounded-full ${store.is_active ? 'bg-green-500' : 'bg-gray-400'}`}></div>
+                          <div>
+                            <h4 className="font-medium text-gray-900">{store.store_name}</h4>
+                            <p className="text-sm text-gray-500">
+                              {store.prefecture} | 最寄駅: {store.nearest_station} | 
+                              最終更新: {new Date(store.updated_at).toLocaleDateString()}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleViewStoreDetails(store.store_id)}
+                            className="px-3 py-1 text-purple-700 bg-purple-50 rounded text-sm hover:bg-purple-100"
+                          >
+                            詳細
+                          </button>
+                          <button className="px-3 py-1 text-blue-700 bg-blue-50 rounded text-sm hover:bg-blue-100">
+                            編集
+                          </button>
+                          <button className={`px-3 py-1 rounded text-sm ${
+                            store.is_active 
+                              ? 'text-red-700 bg-red-50 hover:bg-red-100' 
+                              : 'text-green-700 bg-green-50 hover:bg-green-100'
+                          }`}>
+                            {store.is_active ? '無効化' : '有効化'}
+                          </button>
                         </div>
                       </div>
-                      <div className="flex gap-2">
-                        <button className="px-3 py-1 text-blue-700 bg-blue-50 rounded text-sm hover:bg-blue-100">
-                          編集
-                        </button>
-                        <button className={`px-3 py-1 rounded text-sm ${
-                          store.status === 'active' 
-                            ? 'text-red-700 bg-red-50 hover:bg-red-100' 
-                            : 'text-green-700 bg-green-50 hover:bg-green-100'
-                        }`}>
-                          {store.status === 'active' ? '無効化' : '有効化'}
-                        </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* 店舗詳細モーダル */}
+            {showDetailsModal && selectedStoreDetails && (
+              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                <div className="bg-white rounded-lg w-full max-w-4xl max-h-[80vh] overflow-hidden">
+                  <div className="p-6 border-b border-gray-200">
+                    <div className="flex justify-between items-center">
+                      <h3 className="text-lg font-semibold">店舗詳細情報</h3>
+                      <button
+                        onClick={() => setShowDetailsModal(false)}
+                        className="text-gray-400 hover:text-gray-600"
+                      >
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                    <p className="text-sm text-gray-600 mt-1">
+                      店舗ID: {selectedStoreDetails.storeId} | 
+                      総項目数: {selectedStoreDetails.totalCount}件
+                    </p>
+                  </div>
+                  
+                  <div className="p-6 overflow-y-auto max-h-[60vh]">
+                    {Object.entries(selectedStoreDetails.categorizedData).map(([category, items]: [string, any]) => (
+                      <div key={category} className="mb-6">
+                        <h4 className="text-md font-semibold text-gray-900 mb-3 bg-gray-50 px-3 py-2 rounded">
+                          📋 {category}
+                        </h4>
+                        <div className="space-y-2">
+                          {items.map((item: any) => (
+                            <div key={item.id} className="border border-gray-100 rounded p-3">
+                              <div className="flex justify-between items-start">
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
+                                      {item.number}
+                                    </span>
+                                    <span className="font-medium text-gray-900">
+                                      {item.element_name}
+                                    </span>
+                                    <span className="text-xs text-gray-500">
+                                      ({item.element})
+                                    </span>
+                                  </div>
+                                  <p className="text-gray-700">{item.value}</p>
+                                </div>
+                                <span className={`text-xs px-2 py-1 rounded font-medium ${
+                                  item.importance === 'A' ? 'bg-red-100 text-red-800' :
+                                  item.importance === 'B' ? 'bg-yellow-100 text-yellow-800' :
+                                  'bg-gray-100 text-gray-800'
+                                }`}>
+                                  {item.importance}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+
+      case 'machines':
+        return (
+          <div className="space-y-6">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                機種管理
+              </h3>
+              <p className="text-gray-600 mb-6">
+                機種のスコア設定を管理します。
+              </p>
+            </div>
+
+            <div className="bg-white border border-gray-200 rounded-lg">
+              <div className="p-4 border-b border-gray-200">
+                <div className="flex justify-between items-center">
+                  <div className="flex gap-4">
+                    <input
+                      type="text"
+                      placeholder="機種名で検索..."
+                      className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    />
+                    <select className="px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                      <option value="">すべて</option>
+                      <option value="active">有効</option>
+                      <option value="inactive">無効</option>
+                    </select>
+                  </div>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={handleBulkUpdateScores}
+                      disabled={isLoading}
+                      className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 text-sm disabled:opacity-50"
+                    >
+                      スコア再計算
+                    </button>
+                    <button className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 text-sm">
+                      + 新規機種追加
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="divide-y divide-gray-200">
+                {machines.length === 0 ? (
+                  <div className="p-8 text-center text-gray-500">
+                    機種データがありません。CSVファイルをアップロードしてください。
+                  </div>
+                ) : (
+                  machines.map((machine) => (
+                    <div key={machine.machine_id} className="p-4 hover:bg-gray-50">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                          <div className={`w-3 h-3 rounded-full ${machine.is_active ? 'bg-green-500' : 'bg-gray-400'}`}></div>
+                          <div className="flex-1">
+                            <h4 className="font-medium text-gray-900">{machine.machine_name}</h4>
+                            <div className="text-sm text-gray-500 space-y-1">
+                              <p>機種ID: {machine.machine_id} | メーカー: {machine.manufacturer || '未設定'}</p>
+                              <div className="flex items-center gap-4">
+                                <span>人気度スコア: <span className="font-bold text-blue-600">{machine.popularity_score}点</span></span>
+                                <span>RTP: {machine.rtp_percentage}%</span>
+                                <span>最終更新: {new Date(machine.updated_at).toLocaleDateString()}</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => setEditingMachine(machine)}
+                            className="px-3 py-1 text-blue-700 bg-blue-50 rounded text-sm hover:bg-blue-100"
+                          >
+                            スコア編集
+                          </button>
+                          <button
+                            className={`px-3 py-1 rounded text-sm ${
+                              machine.is_active 
+                                ? 'text-red-700 bg-red-50 hover:bg-red-100' 
+                                : 'text-green-700 bg-green-50 hover:bg-green-100'
+                            }`}
+                          >
+                            {machine.is_active ? '無効化' : '有効化'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* スコア編集ダイアログ */}
+            {editingMachine && (
+              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                <div className="bg-white rounded-lg p-6 w-full max-w-md">
+                  <h3 className="text-lg font-semibold mb-4">機種スコア編集</h3>
+                  
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        機種名
+                      </label>
+                      <input
+                        type="text"
+                        value={editingMachine.machine_name}
+                        disabled
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        人気度スコア (0-100)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        value={editingMachine.popularity_score}
+                        onChange={(e) => setEditingMachine({
+                          ...editingMachine,
+                          popularity_score: parseInt(e.target.value)
+                        })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        高いスコアほど分析での重要度が上がります
+                      </p>
+                    </div>
+
+                    <div className="bg-blue-50 p-3 rounded">
+                      <h4 className="text-sm font-medium text-blue-900 mb-2">参考スコア目安</h4>
+                      <div className="text-xs text-blue-700 space-y-1">
+                        <p>• 90-100: 超人気機種（ゴッドイーター、バイオハザードなど）</p>
+                        <p>• 80-89: 人気機種（To LOVEる、エヴァなど）</p>
+                        <p>• 70-79: 定番機種（政宗、ガルパンなど）</p>
+                        <p>• 50-69: 標準機種</p>
+                        <p>• 30-49: 不人気機種</p>
                       </div>
                     </div>
                   </div>
-                ))}
+                  
+                  <div className="flex gap-3 mt-6">
+                    <button
+                      onClick={() => setEditingMachine(null)}
+                      className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+                    >
+                      キャンセル
+                    </button>
+                    <button
+                      onClick={() => handleUpdateMachineScore(editingMachine.machine_id, editingMachine.popularity_score)}
+                      disabled={isLoading}
+                      className="flex-1 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50"
+                    >
+                      {isLoading ? '更新中...' : '更新'}
+                    </button>
+                  </div>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         );
 
@@ -789,26 +1147,44 @@ export default function AdminPage() {
               )}
             </div>
 
-              {/* サンプルデータ管理 */}
-              <div className="bg-white border border-gray-200 rounded-lg p-6">
-                <h4 className="text-md font-medium text-gray-900 mb-4">
-                  🗃️ サンプルデータ管理
+              {/* サンプルデータ管理（無効化済み） */}
+              <div className="bg-gray-50 border border-gray-300 rounded-lg p-6 opacity-75">
+                <h4 className="text-md font-medium text-gray-700 mb-4">
+                  🗃️ サンプルデータ管理（無効化済み）
                 </h4>
                 
                 <div className="space-y-4">
                   <button
                     onClick={handleInitDatabase}
-                    disabled={isLoading}
-                    className="w-full bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="w-full bg-gray-400 text-white px-4 py-2 rounded-lg cursor-not-allowed transition-colors"
+                    disabled
                   >
-                    {isLoading ? '投入中...' : 'サンプルデータ投入'}
+                    サンプルデータ投入（無効）
                   </button>
                   
                   <p className="text-sm text-gray-600">
-                    テスト用のサンプルデータをデータベースに投入します。
+                    サンプルデータ機能は無効化されています。
                     <br />
-                    既存のデータがある場合は上書きされます。
+                    実データのCSVアップロード機能をご利用ください。
                   </p>
+                </div>
+              </div>
+            </div>
+
+            {/* 機種データ投入状況 */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <h4 className="font-semibold text-blue-900 mb-2">🎰 機種データ投入状況</h4>
+              <div className="text-sm text-blue-700 space-y-2">
+                <p>• 現在の機種データ: <span className="font-mono">{systemStats?.totalStores || 0}</span>件</p>
+                <p>• 人気度スコア: 自動算出済み</p>
+                <p>• 大量CSV対応: バッチ処理（50件/バッチ）</p>
+                <div className="mt-3 p-3 bg-blue-100 rounded">
+                  <p className="font-medium">✨ 機種データ追加時の自動処理</p>
+                  <ul className="mt-1 text-xs space-y-1">
+                    <li>・人気度スコア自動算出</li>
+                    <li>・分析エンジンへの即時反映</li>
+                    <li>・おすすめ機種リスト更新</li>
+                  </ul>
                 </div>
               </div>
             </div>
@@ -901,6 +1277,7 @@ export default function AdminPage() {
                 { key: 'upload', label: 'データアップロード', icon: '📁' },
                 { key: 'scoring', label: 'スコア設定', icon: '⚙️' },
                 { key: 'stores', label: '店舗管理', icon: '🏪' },
+                { key: 'machines', label: '機種管理', icon: '🎰' },
                 { key: 'database', label: 'データベース管理', icon: '💾' },
                 { key: 'settings', label: 'システム設定', icon: '🔧' }
               ].map((tab) => (

@@ -474,4 +474,316 @@ E002,月末大特価,2025-06-30,1,2,special_day,1.15,月末恒例の特価イベ
         return '';
     }
   }
-}; 
+};
+
+/**
+ * 機種データの大量処理対応
+ */
+export async function processMachinesBatch(machineRecords: any[], batchSize = 50) {
+  const results = [];
+  
+  // バッチ処理でデータベースへの負荷を軽減
+  for (let i = 0; i < machineRecords.length; i += batchSize) {
+    const batch = machineRecords.slice(i, i + batchSize);
+    
+    // 各バッチを並列処理
+    const batchResults = await Promise.all(
+      batch.map(async (record) => {
+        // 機種名から人気度スコアを自動算出
+        const popularityScore = estimateMachinePopularity(record.machine_name || '');
+        
+        return {
+          ...record,
+          popularity_score: popularityScore,
+          is_active: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+      })
+    );
+    
+    results.push(...batchResults);
+    
+    // バッチ間で少し待機（API制限対応）
+    if (i + batchSize < machineRecords.length) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
+  
+  return results;
+}
+
+/**
+ * 機種名から人気度を推定（CSV処理用）
+ */
+function estimateMachinePopularity(machineName: string): number {
+  const popularKeywords = [
+    { keyword: 'ゴッドイーター', score: 85 },
+    { keyword: 'To LOVEる', score: 80 },
+    { keyword: 'バイオハザード', score: 90 },
+    { keyword: 'ディスクアップ', score: 75 },
+    { keyword: '政宗', score: 70 },
+    { keyword: 'ガールズパンツァー', score: 75 },
+    { keyword: 'エヴァンゲリオン', score: 85 },
+    { keyword: '北斗', score: 85 },
+    { keyword: 'まどマギ', score: 80 },
+    { keyword: 'リゼロ', score: 75 },
+    { keyword: 'スマスロ', score: 5 } // ボーナス加算
+  ];
+
+  let baseScore = 50;
+
+  for (const { keyword, score } of popularKeywords) {
+    if (machineName.includes(keyword)) {
+      if (keyword === 'スマスロ') {
+        baseScore += score;
+      } else {
+        baseScore = Math.max(baseScore, score);
+      }
+    }
+  }
+
+  return Math.min(baseScore, 95);
+}
+
+/**
+ * CSV処理ユーティリティ
+ * 
+ * 機種データ、イベントデータ、店舗データのCSV処理を統合管理
+ */
+
+export interface ProcessedData {
+  /** 処理されたデータ */
+  data: any[] | { stores: any[]; store_details: any[] } | any;
+  /** 処理されたレコード数 */
+  processedCount: number;
+  /** エラーレコード数 */
+  errorCount: number;
+  /** エラー詳細 */
+  errors: string[];
+  /** 処理したデータ種別 */
+  dataType: 'machines' | 'events' | 'stores' | 'unknown';
+}
+
+/**
+ * CSVデータの種別を自動判定
+ */
+export function detectDataType(headers: string[]): 'machines' | 'events' | 'stores' | 'unknown' {
+  const headerStr = headers.join(',').toLowerCase();
+  
+  // 店舗データの判定
+  if (headerStr.includes('store_id') && headerStr.includes('element') && headerStr.includes('要素名')) {
+    return 'stores';
+  }
+  
+  // 機種データの判定
+  if (headerStr.includes('machine_id') || headerStr.includes('machine_name')) {
+    return 'machines';
+  }
+  
+  // イベントデータの判定
+  if (headerStr.includes('event_id') || headerStr.includes('event_name')) {
+    return 'events';
+  }
+  
+  return 'unknown';
+}
+
+/**
+ * 店舗CSV処理（store_001.csv形式）
+ */
+export function processStoreCSV(csvText: string): ProcessedData {
+  try {
+    const lines = csvText.trim().split('\n');
+    const headers = lines[0].split(',').map(h => h.trim());
+    
+    // ヘッダー検証
+    const expectedHeaders = ['store_id', 'number', 'element', '要素名', '情報', '大項目', '重要度'];
+    const hasValidHeaders = expectedHeaders.every(header => headers.includes(header));
+    
+    if (!hasValidHeaders) {
+      return {
+        data: [],
+        processedCount: 0,
+        errorCount: 1,
+        errors: [`店舗CSVの形式が正しくありません。必要な列: ${expectedHeaders.join(', ')}`],
+        dataType: 'stores'
+      };
+    }
+    
+    const storeDataMap = new Map<string, any>();
+    const storeDetailsArray: any[] = [];
+    const errors: string[] = [];
+    let errorCount = 0;
+    
+    // 各行を処理
+    for (let i = 1; i < lines.length; i++) {
+      try {
+        const values = lines[i].split(',').map(v => v.trim().replace(/"/g, ''));
+        
+        if (values.length < expectedHeaders.length) {
+          continue;
+        }
+        
+        const [storeId, number, element, elementName, info, category, importance] = values;
+        
+        // 基本店舗情報の設定
+        if (!storeDataMap.has(storeId)) {
+          storeDataMap.set(storeId, {
+            store_id: storeId,
+            store_name: '',
+            prefecture: '',
+            city: '',
+            nearest_station: '',
+            business_hours: '',
+            total_machines: 0,
+            pachinko_machines: 0,
+            pachislot_machines: 0,
+            phone_number: '',
+            address: '',
+            website_url: '',
+            is_active: true,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          });
+        }
+        
+        const storeData = storeDataMap.get(storeId);
+        
+        // 重要な要素は基本テーブルにも保存
+        switch (element) {
+          case 'official_store_name_image':
+          case 'official_store_name2':
+            storeData.store_name = info;
+            break;
+          case 'prefecture':
+            storeData.prefecture = info;
+            break;
+          case 'city':
+            storeData.city = info;
+            break;
+          case 'nearest_station':
+            storeData.nearest_station = info;
+            break;
+          case 'business_hours':
+            storeData.business_hours = info;
+            break;
+          case 'total_machines':
+            storeData.total_machines = parseInt(info.replace(/台|約|,/g, '')) || 0;
+            break;
+          case 'pachinko_machines':
+            storeData.pachinko_machines = parseInt(info.replace(/台|約|,/g, '')) || 0;
+            break;
+          case 'pachislot_machines':
+            storeData.pachislot_machines = parseInt(info.replace(/台|約|,/g, '')) || 0;
+            break;
+          case 'phone_number':
+            storeData.phone_number = info;
+            break;
+          case 'full_address':
+            storeData.address = info.split(',')[0]; // 最初のアドレスを使用
+            break;
+          case 'website_url':
+            storeData.website_url = info;
+            break;
+        }
+        
+        // 全ての要素を詳細テーブル用データとして保存
+        storeDetailsArray.push({
+          store_id: storeId,
+          number: parseInt(number) || 0,
+          element: element,
+          element_name: elementName,
+          value: info,
+          category: category,
+          importance: importance,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        });
+        
+      } catch (error) {
+        errorCount++;
+        errors.push(`行 ${i + 1}: ${error instanceof Error ? error.message : '処理エラー'}`);
+      }
+    }
+    
+    const processedStores = Array.from(storeDataMap.values()).filter(store => 
+      store.store_name && store.prefecture
+    );
+    
+    return {
+      data: {
+        stores: processedStores,
+        store_details: storeDetailsArray
+      },
+      processedCount: processedStores.length,
+      errorCount,
+      errors: errors.slice(0, 10), // 最初の10個のエラーのみ
+      dataType: 'stores'
+    };
+    
+  } catch (error) {
+    return {
+      data: [],
+      processedCount: 0,
+      errorCount: 1,
+      errors: [`CSV処理エラー: ${error instanceof Error ? error.message : 'Unknown error'}`],
+      dataType: 'stores'
+    };
+  }
+}
+
+/**
+ * 機種CSV処理
+ */
+export function processMachineCSV(csvText: string): ProcessedData {
+  // 既存の機種CSV処理ロジック
+  try {
+    const lines = csvText.trim().split('\n');
+    const headers = lines[0].split(',').map(h => h.trim());
+    
+    const machines: any[] = [];
+    const errors: string[] = [];
+    let errorCount = 0;
+    
+    for (let i = 1; i < lines.length; i++) {
+      try {
+        const values = lines[i].split(',').map(v => v.trim().replace(/"/g, ''));
+        
+        if (values.length >= headers.length) {
+          const machineData: any = {};
+          headers.forEach((header, index) => {
+            machineData[header] = values[index] || '';
+          });
+          
+          // 人気度スコアの自動設定
+          if (machineData.machine_name) {
+            machineData.popularity_score = estimateMachinePopularity(machineData.machine_name);
+          }
+          
+          machines.push(machineData);
+        }
+      } catch (error) {
+        errorCount++;
+        errors.push(`行 ${i + 1}: ${error instanceof Error ? error.message : '処理エラー'}`);
+      }
+    }
+    
+    return {
+      data: machines,
+      processedCount: machines.length,
+      errorCount,
+      errors: errors.slice(0, 10),
+      dataType: 'machines'
+    };
+    
+  } catch (error) {
+    return {
+      data: [],
+      processedCount: 0,
+      errorCount: 1,
+      errors: [`CSV処理エラー: ${error instanceof Error ? error.message : 'Unknown error'}`],
+      dataType: 'machines'
+    };
+  }
+} 

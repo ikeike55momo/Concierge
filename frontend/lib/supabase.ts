@@ -297,7 +297,7 @@ export const dbHelpers = {
   },
 
   /**
-   * 基本分析データ生成（分析データがない場合の代替）
+   * 詳細分析データ生成（機種データ連携版）
    */
   async generateBasicAnalysis(storeId: string, targetDate: string) {
     try {
@@ -320,44 +320,250 @@ export const dbHelpers = {
         .order('date', { ascending: false })
         .limit(7);
 
-      // 基本的なスコア計算
-      const avgDifference = recentPerformance?.reduce((sum, p) => sum + p.average_difference, 0) / (recentPerformance?.length || 1) || 300;
-      const baseScore = Math.min(Math.max(Math.round(avgDifference / 10), 30), 90);
-      const winRate = Math.min(Math.max(Math.round(avgDifference / 8), 40), 85);
+      // 機種データを取得
+      const { data: machinesData } = await typedSupabase
+        .from('machines')
+        .select('*')
+        .eq('is_active', true);
+
+      // イベントデータを取得
+      const { data: eventsData } = await typedSupabase
+        .from('events')
+        .select('*')
+        .contains('target_stores', [storeId])
+        .eq('event_date', targetDate)
+        .eq('is_active', true);
+
+      // スコア詳細計算
+      const scores = this.calculateDetailedScores(
+        recentPerformance || [],
+        storeData,
+        machinesData || [],
+        eventsData || []
+      );
+
+      // おすすめ機種を機種データから生成
+      const recommendedMachines = this.generateRecommendedMachines(
+        recentPerformance || [],
+        machinesData || []
+      );
 
       return {
         storeId,
         storeName: storeData.store_name,
-        totalScore: baseScore,
-        tomorrowWinRate: winRate,
-        confidence: 70,
-        comment: '基本分析による予測値です',
-        recommendedMachines: [],
+        totalScore: scores.totalScore,
+        tomorrowWinRate: scores.winRate,
+        confidence: scores.confidence,
+        comment: scores.comment,
+        recommendedMachines,
         playStrategy: {
           recommendedEntryTime: '10:30-11:00',
-          targetMachines: storeData.popular_machines || [],
+          targetMachines: recommendedMachines.map(m => m.machineName).slice(0, 3),
           avoidMachines: [],
-          strategy: '人気機種を中心に様子を見ながら立ち回ってください',
-          warnings: ['分析データが不足しています']
+          strategy: this.generateStrategy(scores),
+          warnings: scores.warnings
         },
         performanceData: recentPerformance || [],
         tomorrowPrediction: {
-          totalDifference: Math.round(winRate * 2000),
-          averageDifference: avgDifference,
-          confidence: 70
+          totalDifference: Math.round(scores.winRate * 2000),
+          averageDifference: scores.avgDifference,
+          confidence: scores.confidence
         },
         analysisRationale: {
-          baseScore: baseScore,
-          eventBonus: 0,
-          machinePopularity: 0,
-          accessScore: 0,
-          personalAdjustment: 0
+          baseScore: scores.baseScore,
+          eventBonus: scores.eventBonus,
+          machinePopularity: scores.machinePopularity,
+          accessScore: scores.accessScore,
+          personalAdjustment: scores.personalAdjustment
         }
       };
     } catch (error) {
-      console.error('基本分析生成エラー:', error);
+      console.error('詳細分析生成エラー:', error);
       throw new Error('分析データの生成に失敗しました');
     }
+  },
+
+  /**
+   * 詳細スコア計算
+   */
+  calculateDetailedScores(
+    performances: any[], 
+    storeData: any, 
+    machinesData: any[], 
+    eventsData: any[]
+  ) {
+    // 1. ベーススコア計算
+    const avgDifference = performances.length > 0 
+      ? performances.reduce((sum, p) => sum + p.average_difference, 0) / performances.length
+      : 300;
+    const baseScore = Math.min(Math.max(Math.round(avgDifference / 10), 20), 80);
+
+    // 2. イベントボーナス計算
+    const eventBonus = eventsData.length > 0 
+      ? eventsData.reduce((sum, e) => sum + (e.bonus_multiplier * 10), 0)
+      : 0;
+
+    // 3. 機種人気度計算
+    const machinePopularity = this.calculateMachinePopularity(performances, machinesData);
+
+    // 4. アクセススコア計算
+    const accessScore = this.calculateAccessScore(storeData);
+
+    // 5. 個人調整（仮想値）
+    const personalAdjustment = Math.floor(Math.random() * 6) - 3; // -3〜+3のランダム
+
+    // 総合スコア
+    const totalScore = Math.min(Math.max(
+      baseScore + eventBonus + machinePopularity + accessScore + personalAdjustment,
+      30
+    ), 95);
+
+    const winRate = Math.min(Math.max(Math.round(totalScore * 0.8), 40), 85);
+
+    return {
+      baseScore,
+      eventBonus,
+      machinePopularity,
+      accessScore,
+      personalAdjustment,
+      totalScore,
+      winRate,
+      avgDifference,
+      confidence: Math.min(baseScore + 20, 85),
+      comment: this.generateDetailedComment(totalScore, eventBonus, machinePopularity),
+      warnings: this.generateWarnings(performances, eventsData)
+    };
+  },
+
+  /**
+   * 機種人気度計算
+   */
+  calculateMachinePopularity(performances: any[], machinesData: any[]): number {
+    if (performances.length === 0 || machinesData.length === 0) return 0;
+
+    const latestPerformance = performances[0];
+    const machinePerformances = latestPerformance?.machine_performances || {};
+    
+    let popularityScore = 0;
+    let machineCount = 0;
+
+    // 各機種の人気度を集計
+    Object.keys(machinePerformances).forEach(machineId => {
+      const machine = machinesData.find(m => m.machine_id === machineId);
+      if (machine) {
+        popularityScore += machine.popularity_score || 50;
+        machineCount++;
+      }
+    });
+
+    return machineCount > 0 ? Math.round((popularityScore / machineCount - 50) / 10) : 0;
+  },
+
+  /**
+   * アクセススコア計算
+   */
+  calculateAccessScore(storeData: any): number {
+    const distance = storeData.distance_from_station || 5;
+    const parkingBonus = storeData.parking_available ? 2 : 0;
+    
+    // 駅からの距離が近いほど高スコア
+    const distanceScore = Math.max(5 - Math.floor(distance / 2), 0);
+    
+    return distanceScore + parkingBonus;
+  },
+
+  /**
+   * おすすめ機種生成
+   */
+  generateRecommendedMachines(performances: any[], machinesData: any[]) {
+    if (performances.length === 0) return [];
+
+    const latestPerformance = performances[0];
+    const machinePerformances = latestPerformance?.machine_performances || {};
+    
+    const recommendations: any[] = [];
+
+    Object.entries(machinePerformances).forEach(([machineId, data]: [string, any]) => {
+      const machine = machinesData.find(m => m.machine_id === machineId);
+      if (machine && data.units) {
+        // 各台の差玉から良台を抽出
+        Object.entries(data.units).forEach(([unitNumber, unitData]: [string, any]) => {
+          if (unitData.diff > 1000) { // 差玉1000枚以上
+            recommendations.push({
+              machineId,
+              machineName: machine.machine_name,
+              unitNumber,
+              expectedDifference: unitData.diff,
+              reason: `前回差玉${unitData.diff}枚、機械割${unitData.rate}`
+            });
+          }
+        });
+      }
+    });
+
+    // 差玉順でソートして上位3台
+    return recommendations
+      .sort((a, b) => b.expectedDifference - a.expectedDifference)
+      .slice(0, 3);
+  },
+
+  /**
+   * 詳細コメント生成
+   */
+  generateDetailedComment(totalScore: number, eventBonus: number, machinePopularity: number): string {
+    let comment = '';
+    
+    if (totalScore >= 80) {
+      comment = 'おすすめ！高い出玉期待度です。';
+    } else if (totalScore >= 65) {
+      comment = '安定した出玉が期待できます。';
+    } else if (totalScore >= 50) {
+      comment = '平均的な店舗です。';
+    } else {
+      comment = '様子見推奨です。';
+    }
+
+    if (eventBonus > 0) {
+      comment += 'イベント開催中でボーナスあり！';
+    }
+
+    if (machinePopularity > 5) {
+      comment += '人気機種が好調です。';
+    }
+
+    return comment;
+  },
+
+  /**
+   * 立ち回り戦略生成
+   */
+  generateStrategy(scores: any): string {
+    if (scores.totalScore >= 80) {
+      return '積極的に打ち込んでOK。人気機種を中心に狙いましょう。';
+    } else if (scores.totalScore >= 65) {
+      return '様子を見ながら、調子の良い台を見つけて勝負。';
+    } else if (scores.totalScore >= 50) {
+      return '慎重に台選び。短時間で見切りをつけることが重要。';
+    } else {
+      return '今日は見送りも一つの選択肢。他店舗も検討してください。';
+    }
+  },
+
+  /**
+   * 警告メッセージ生成
+   */
+  generateWarnings(performances: any[], eventsData: any[]): string[] {
+    const warnings: string[] = [];
+
+    if (performances.length < 5) {
+      warnings.push('データが不足しており、予測精度が低い可能性があります');
+    }
+
+    if (eventsData.length === 0) {
+      warnings.push('イベント情報が未確認です');
+    }
+
+    return warnings;
   },
 
   /**

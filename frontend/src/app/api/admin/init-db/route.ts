@@ -3,7 +3,7 @@
  * 
  * POST /api/admin/init-db
  * - データベース状態チェック
- * - サンプルデータ挿入
+ * - サンプルデータ挿入機能（無効化済み）
  * - 開発・テスト環境用
  */
 
@@ -30,25 +30,12 @@ export async function POST(request: NextRequest) {
       });
 
     } else if (action === 'init') {
-      // サンプルデータ挿入
-      try {
-        const result = await dbHelpers.insertSampleData();
-        
-        return NextResponse.json({
-          success: true,
-          result,
-          message: 'サンプルデータの挿入が完了しました'
-        });
-
-      } catch (dbError) {
-        console.error('サンプルデータ挿入エラー:', dbError);
-        
-        return NextResponse.json({
-          success: false,
-          error: 'サンプルデータ挿入に失敗しました',
-          details: dbError instanceof Error ? dbError.message : '不明なエラー'
-        }, { status: 500 });
-      }
+      // データベース初期化（サンプルデータ挿入は無効化）
+      return NextResponse.json({
+        success: false,
+        error: 'サンプルデータ挿入機能は無効化されています',
+        message: '実データのCSVアップロードをご利用ください'
+      }, { status: 400 });
 
     } else {
       return NextResponse.json(
