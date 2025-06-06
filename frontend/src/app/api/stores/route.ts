@@ -37,6 +37,8 @@ interface StoreRankingQuery {
 /**
  * 店舗ランキング取得
  */
+export const dynamic = 'force-dynamic'
+
 export async function GET(request: NextRequest) {
   try {
     console.log('店舗ランキングAPI開始...');

@@ -7,7 +7,7 @@
 
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 // import StoreCard from '../../../components/StoreCard';
 
@@ -22,7 +22,7 @@ interface StoreRanking {
   nearestStation: string;
 }
 
-export default function StoresPage() {
+function StoresPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const type = searchParams.get('type'); // 'recommended' or 'local'
@@ -265,4 +265,12 @@ export default function StoresPage() {
       </main>
     </div>
   );
-} 
+}
+
+export default function StoresPage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <StoresPageContent />
+    </Suspense>
+  );
+}

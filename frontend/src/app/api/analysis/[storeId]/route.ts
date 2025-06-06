@@ -60,6 +60,8 @@ interface RequestContext {
 /**
  * 店舗詳細分析取得
  */
+export const dynamic = 'force-dynamic'
+
 export async function GET(
   request: NextRequest,
   context: RequestContext
