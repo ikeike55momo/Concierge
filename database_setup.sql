@@ -85,6 +85,13 @@ CREATE TABLE stores (
     smoking_allowed BOOLEAN DEFAULT true,
     event_frequency INTEGER DEFAULT 0,
     
+    -- 位置情報
+    latitude DECIMAL(10, 8),
+    longitude DECIMAL(11, 8),
+    
+    -- 開業情報
+    establishment_date VARCHAR(50),
+    
     -- ステータス
     is_active BOOLEAN DEFAULT true,
     
@@ -93,8 +100,11 @@ CREATE TABLE stores (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 既存テーブルにaddressカラムを追加（エラーを無視）
+-- 既存テーブルに新しいカラムを追加（エラーを無視）
 ALTER TABLE stores ADD COLUMN IF NOT EXISTS address TEXT;
+ALTER TABLE stores ADD COLUMN IF NOT EXISTS latitude DECIMAL(10, 8);
+ALTER TABLE stores ADD COLUMN IF NOT EXISTS longitude DECIMAL(11, 8);
+ALTER TABLE stores ADD COLUMN IF NOT EXISTS establishment_date VARCHAR(50);
 
 -- インデックス
 CREATE INDEX IF NOT EXISTS idx_stores_prefecture ON stores(prefecture);

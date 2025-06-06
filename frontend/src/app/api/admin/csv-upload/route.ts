@@ -179,45 +179,110 @@ async function syncStoreData(storeId: string, csvData: CsvRow[]) {
     updated_at: new Date().toISOString()
   };
 
-  // CSV データから店舗情報を抽出（新フォーマット対応）
+  // CSV データから店舗情報を抽出（更新されたCSV形式に対応）
       csvData.forEach(row => {
       if (!row['情報']) return; // 空の情報はスキップ
       
       switch (row['element']) {
-              case 'official_store_name_image':
+        case 'official_store_name_image':
+        case 'official_store_name':
         case 'official_store_name2':
           storeData.store_name = row['情報'];
           break;
+        case 'prefecture_image':
         case 'prefecture':
           storeData.prefecture = row['情報'];
           break;
+        case 'city_image':
+        case 'city':
+          storeData.city = row['情報'];
+          break;
+        case 'address_details_image':
+        case 'full_address':
+          storeData.address = row['情報'].split(',')[0]; // 最初のアドレスを使用
+          storeData.full_address = row['情報'];
+          break;
+        case 'nearest_station_image':
+        case 'nearest_station_name':
         case 'nearest_station':
           storeData.nearest_station = row['情報'];
           break;
+        case 'postal_code':
+          storeData.postal_code = row['情報'];
+          break;
+        case 'walk_minutes_from_station':
+        case 'distance_from_station_image':
         case 'station_access':
-          // "JR秋葉原駅電気街口から徒歩3分" から数値を抽出
-          const walkMatch = row['情報'].match(/徒歩(\d+)分/);
+          // 徒歩時間の抽出
+          const walkMatch = row['情報'].match(/(\d+)分/);
           if (walkMatch) {
-            storeData.distance_from_station = parseInt(walkMatch[1]);
+            storeData.walk_minutes = parseInt(walkMatch[1]);
+            storeData.distance_from_station = parseInt(walkMatch[1]) * 80; // 徒歩1分≈80m
+          }
+          break;
+        case 'weekday_opening_time':
+          storeData.opening_hours = row['情報'];
+          break;
+        case 'weekday_closing_time':
+          if (storeData.opening_hours) {
+            storeData.business_hours = `${storeData.opening_hours}-${row['情報']}`;
           }
           break;
         case 'business_hours':
           storeData.opening_hours = row['情報'];
           break;
+        case 'total_machines_count_image':
         case 'total_machines':
           storeData.total_machines = parseInt(row['情報'].replace(/[^\d]/g, '')) || 0;
           break;
+        case 'pachinko_machines_count_image':
+        case 'pachinko_machines':
+          storeData.pachinko_machines = parseInt(row['情報'].replace(/[^\d]/g, '')) || 0;
+          break;
+        case 'slot_machines_count_image':
+        case 'pachislot_machines':
+          storeData.pachislot_machines = parseInt(row['情報'].replace(/[^\d]/g, '')) || 0;
+          break;
+        case 'phone_number':
+          storeData.phone_number = row['情報'];
+          break;
+        case 'official_website_url':
+        case 'website_url':
+          storeData.website_url = row['情報'];
+          break;
+        case 'parking_availability_image':
+        case 'parking_capacity':
         case 'parking_info':
-          storeData.parking_available = row['情報'].includes('あり') || row['情報'].includes('提携');
-          break;
-        case 'smoking_policy':
-          storeData.smoking_allowed = !row['情報'].includes('禁煙');
-          break;
-        case 'event_frequency':
-          const eventMatch = row['情報'].match(/週(\d+)/);
-          if (eventMatch) {
-            storeData.event_frequency = parseInt(eventMatch[1]);
+          storeData.parking_available = row['情報'].includes('あり') || row['情報'].includes('有') || parseInt(row['情報']) > 0;
+          if (parseInt(row['情報'])) {
+            storeData.parking_spots = parseInt(row['情報']) || 0;
           }
+          break;
+        case 'smoking_area_available':
+        case 'smoking_policy':
+          storeData.smoking_allowed = row['情報'].includes('有') || row['情報'].includes('あり') || !row['情報'].includes('禁煙');
+          break;
+        case 'special_days_info_image':
+        case 'event_frequency':
+          // 特定日の情報から頻度を推定
+          if (row['情報'].includes('毎月') || row['情報'].includes('ゾロ目')) {
+            const dayCount = (row['情報'].match(/\d+日/g) || []).length;
+            storeData.event_frequency = dayCount + 2; // ゾロ目日等も含む
+          } else if (row['情報'].includes('週')) {
+            storeData.event_frequency = parseInt(row['情報'].replace(/[^\d]/g, '')) * 4;
+          } else {
+            storeData.event_frequency = parseInt(row['情報'].replace(/[^\d]/g, '')) || 0;
+          }
+          break;
+        case 'latitude':
+          storeData.latitude = parseFloat(row['情報']) || null;
+          break;
+        case 'longitude':
+          storeData.longitude = parseFloat(row['情報']) || null;
+          break;
+        case 'establishment_date_image':
+        case 'opening_date':
+          storeData.establishment_date = row['情報'];
           break;
         case 'special_features':
           storeData.popular_machines = row['情報'].split(',').map(s => s.trim());

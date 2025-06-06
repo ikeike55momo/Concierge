@@ -495,6 +495,35 @@ export default function AdminPage() {
   };
 
   /**
+   * 店舗削除
+   */
+  const handleDeleteStore = async (storeId: string, storeName: string) => {
+    if (!confirm(`店舗「${storeName}」を削除しますか？\n\n⚠️ この操作は取り消せません。\n店舗詳細データも同時に削除されます。`)) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/admin/stores/${storeId}`, {
+        method: 'DELETE'
+      });
+      const data = await response.json();
+      
+      if (data.success) {
+        setMessage({ type: 'success', text: `店舗「${storeName}」を削除しました` });
+        setForceUpdate(!forceUpdate); // 店舗リストを更新
+      } else {
+        setMessage({ type: 'error', text: data.error || '店舗削除に失敗しました' });
+      }
+      
+      setTimeout(() => setMessage(null), 3000);
+    } catch (error) {
+      console.error('店舗削除エラー:', error);
+      setMessage({ type: 'error', text: '店舗削除に失敗しました' });
+      setTimeout(() => setMessage(null), 3000);
+    }
+  };
+
+  /**
    * タブコンテンツのレンダリング
    */
   const renderTabContent = () => {
@@ -763,6 +792,12 @@ export default function AdminPage() {
                               : 'text-green-700 bg-green-50 hover:bg-green-100'
                           }`}>
                             {store.is_active ? '無効化' : '有効化'}
+                          </button>
+                          <button
+                            onClick={() => handleDeleteStore(store.store_id, store.store_name)}
+                            className="px-3 py-1 text-red-700 bg-red-50 rounded text-sm hover:bg-red-100 border border-red-200"
+                          >
+                            削除
                           </button>
                         </div>
                       </div>

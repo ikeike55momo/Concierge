@@ -627,7 +627,7 @@ export function processStoreCSV(csvText: string): ProcessedData {
         
         const [storeId, number, element, elementName, info, category, importance] = values;
         
-        // 基本店舗情報の設定
+        // 基本店舗情報の設定（更新されたCSV形式に対応）
         if (!storeDataMap.has(storeId)) {
           storeDataMap.set(storeId, {
             store_id: storeId,
@@ -653,6 +653,9 @@ export function processStoreCSV(csvText: string): ProcessedData {
             parking_available: false,
             smoking_allowed: true,
             event_frequency: 0,
+            latitude: null,
+            longitude: null,
+            establishment_date: '',
             is_active: true,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
@@ -661,62 +664,107 @@ export function processStoreCSV(csvText: string): ProcessedData {
         
         const storeData = storeDataMap.get(storeId);
         
-        // 重要な要素は基本テーブルにも保存
+        // 重要な要素は基本テーブルにも保存（更新されたCSV形式に対応）
         switch (element) {
           case 'official_store_name_image':
+          case 'official_store_name':
           case 'official_store_name2':
             storeData.store_name = info;
             break;
+          case 'prefecture_image':
           case 'prefecture':
             storeData.prefecture = info;
             break;
+          case 'city_image':
           case 'city':
             storeData.city = info;
             break;
+          case 'address_details_image':
           case 'full_address':
             storeData.address = info.split(',')[0]; // 最初のアドレスを使用
             storeData.full_address = info;
             break;
+          case 'nearest_station_image':
+          case 'nearest_station_name':
           case 'nearest_station':
             storeData.nearest_station = info;
             break;
+          case 'weekday_opening_time':
+          case 'weekday_closing_time':
           case 'business_hours':
-            storeData.business_hours = info;
+            if (element === 'weekday_opening_time') {
+              storeData.opening_hours = info;
+            } else if (element === 'weekday_closing_time') {
+              storeData.business_hours = `${storeData.opening_hours || '10:00'}-${info}`;
+            } else {
+              storeData.business_hours = info;
+            }
             break;
+          case 'total_machines_count_image':
           case 'total_machines':
             storeData.total_machines = parseInt(info.replace(/台|約|,/g, '')) || 0;
             break;
+          case 'pachinko_machines_count_image':
           case 'pachinko_machines':
             storeData.pachinko_machines = parseInt(info.replace(/台|約|,/g, '')) || 0;
             break;
+          case 'slot_machines_count_image':
           case 'pachislot_machines':
             storeData.pachislot_machines = parseInt(info.replace(/台|約|,/g, '')) || 0;
             break;
           case 'phone_number':
             storeData.phone_number = info;
             break;
+          case 'official_website_url':
           case 'website_url':
             storeData.website_url = info;
             break;
           case 'postal_code':
             storeData.postal_code = info;
             break;
+          case 'parking_availability_image':
+          case 'parking_capacity':
           case 'parking_info':
-            storeData.parking_available = info.includes('あり') || info.includes('有');
+            storeData.parking_available = info.includes('あり') || info.includes('有') || parseInt(info) > 0;
+            if (parseInt(info)) {
+              storeData.parking_spots = parseInt(info) || 0;
+            }
             break;
+          case 'smoking_area_available':
           case 'smoking_policy':
-            storeData.smoking_allowed = !info.includes('禁煙');
+            storeData.smoking_allowed = info.includes('有') || info.includes('あり') || !info.includes('禁煙');
             break;
+          case 'special_days_info_image':
           case 'event_frequency':
-            storeData.event_frequency = info.includes('週') ? 
-              parseInt(info.replace(/[^\d]/g, '')) * 4 : 
-              parseInt(info.replace(/[^\d]/g, '')) || 0;
+            // 特定日の情報から頻度を推定
+            if (info.includes('毎月') || info.includes('ゾロ目')) {
+              const dayCount = (info.match(/\d+日/g) || []).length;
+              storeData.event_frequency = dayCount + 2; // ゾロ目日等も含む
+            } else if (info.includes('週')) {
+              storeData.event_frequency = parseInt(info.replace(/[^\d]/g, '')) * 4;
+            } else {
+              storeData.event_frequency = parseInt(info.replace(/[^\d]/g, '')) || 0;
+            }
             break;
+          case 'walk_minutes_from_station':
+          case 'distance_from_station_image':
           case 'station_access':
-            const walkMatch = info.match(/徒歩(\d+)分/);
+            // 徒歩時間の抽出
+            const walkMatch = info.match(/(\d+)分/);
             if (walkMatch) {
               storeData.walk_minutes = parseInt(walkMatch[1]);
+              storeData.distance_from_station = parseInt(walkMatch[1]) * 80; // 徒歩1分≈80m
             }
+            break;
+          case 'latitude':
+            storeData.latitude = parseFloat(info) || null;
+            break;
+          case 'longitude':
+            storeData.longitude = parseFloat(info) || null;
+            break;
+          case 'establishment_date_image':
+          case 'opening_date':
+            storeData.establishment_date = info;
             break;
         }
         
