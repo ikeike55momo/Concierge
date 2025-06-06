@@ -619,16 +619,38 @@ export const dbHelpers = {
    */
   async generateStoreRankings() {
     try {
+      console.log('店舗ランキング生成開始...');
+      
       // 1. 店舗データ取得
-      const { data: stores } = await typedSupabase
+      let { data: stores, error: storeError } = await typedSupabase
         .from('stores')
         .select('*')
         .eq('is_active', true);
 
+      if (storeError) {
+        console.error('店舗データ取得エラー:', storeError);
+        throw new Error(`店舗データ取得失敗: ${storeError.message}`);
+      }
+
       if (!stores || stores.length === 0) {
-        console.log('店舗データが見つかりません - テストデータを生成します');
-        // 店舗データがない場合はテストデータを返す
-        return this.generateTestRankings();
+        console.log('アクティブな店舗データが見つかりません');
+        // is_activeに関係なくすべての店舗を取得してみる
+        const { data: allStores, error: allStoreError } = await typedSupabase
+          .from('stores')
+          .select('*');
+        
+        if (allStoreError) {
+          console.error('全店舗データ取得エラー:', allStoreError);
+          throw new Error('店舗データが取得できません');
+        }
+        
+        if (!allStores || allStores.length === 0) {
+          throw new Error('データベースに店舗データが存在しません');
+        }
+        
+        console.log(`全店舗数: ${allStores.length}件 (is_active=false含む)`);
+        // is_activeがfalseでも表示するため、allStoresを使用
+        stores = allStores;
       }
 
       console.log(`${stores.length}件の店舗データが見つかりました`);
@@ -647,12 +669,18 @@ export const dbHelpers = {
       }> = [];
 
       for (const store of stores) {
-        const { data: recentPerformances } = await typedSupabase
+        console.log(`店舗${store.store_id}の処理中...`);
+        
+        const { data: recentPerformances, error: perfError } = await typedSupabase
           .from('store_performances')
           .select('*')
           .eq('store_id', store.store_id)
           .order('date', { ascending: false })
           .limit(7);
+
+        if (perfError) {
+          console.warn(`店舗${store.store_id}のパフォーマンスデータ取得エラー:`, perfError);
+        }
 
         // パフォーマンスデータがない場合でもデフォルトスコアで追加
         let totalScore = 65; // デフォルトスコア
@@ -690,50 +718,8 @@ export const dbHelpers = {
       return rankings;
     } catch (error) {
       console.error('店舗ランキング生成エラー:', error);
-      console.log('エラーのためテストデータを返します');
-      return this.generateTestRankings();
+      throw error; // エラーを再投げして上位で適切に処理
     }
-  },
-
-  /**
-   * テスト用ランキングデータ生成
-   */
-  generateTestRankings() {
-    return [
-      {
-        store_id: '001',
-        store_name: 'パチンコ＆スロット アイランド秋葉原店',
-        prefecture: '東京都',
-        nearest_station: 'JR秋葉原駅',
-        total_score: 85,
-        predicted_win_rate: 72,
-        llm_comment: 'おすすめ！高い出玉期待度',
-        analysis_date: new Date().toISOString().split('T')[0],
-        rank: 1
-      },
-      {
-        store_id: '002',
-        store_name: 'JOYPIT神田店',
-        prefecture: '東京都',
-        nearest_station: 'JR神田駅',
-        total_score: 78,
-        predicted_win_rate: 68,
-        llm_comment: 'おすすめ！高い出玉期待度',
-        analysis_date: new Date().toISOString().split('T')[0],
-        rank: 2
-      },
-      {
-        store_id: '003',
-        store_name: 'ガイア渋谷店',
-        prefecture: '東京都',
-        nearest_station: 'JR渋谷駅',
-        total_score: 72,
-        predicted_win_rate: 65,
-        llm_comment: '安定した出玉が期待できる',
-        analysis_date: new Date().toISOString().split('T')[0],
-        rank: 3
-      }
-    ];
   },
 
   /**
