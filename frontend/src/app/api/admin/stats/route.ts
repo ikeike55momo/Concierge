@@ -26,26 +26,38 @@ export async function GET(request: NextRequest) {
       (async () => {
         const { data, error } = await supabase
           .from('stores')
-          .select('id');
-        return error ? 0 : (data?.length || 0);
+          .select('store_id');
+        if (error) {
+          console.error('総店舗数取得エラー:', error);
+          return 0;
+        }
+        return data?.length || 0;
       })(),
       
       // アクティブ店舗数
       (async () => {
         const { data, error } = await supabase
           .from('stores')
-          .select('id')
+          .select('store_id')
           .eq('is_active', true);
-        return error ? 0 : (data?.length || 0);
+        if (error) {
+          console.error('アクティブ店舗数取得エラー:', error);
+          return 0;
+        }
+        return data?.length || 0;
       })(),
       
       // 今日の分析数（score_analyses）
       (async () => {
         const { data, error } = await supabase
           .from('score_analyses')
-          .select('id')
+          .select('analysis_id')
           .eq('analysis_date', today);
-        return error ? 0 : (data?.length || 0);
+        if (error) {
+          console.error('今日の分析数取得エラー:', error);
+          return 0;
+        }
+        return data?.length || 0;
       })(),
       
       // 最終更新日（store_performances）

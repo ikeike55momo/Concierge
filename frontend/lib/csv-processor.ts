@@ -634,14 +634,25 @@ export function processStoreCSV(csvText: string): ProcessedData {
             store_name: '',
             prefecture: '',
             city: '',
+            address: '',
+            full_address: '',
+            postal_code: '',
             nearest_station: '',
+            walk_minutes: 0,
+            distance_from_station: 0,
             business_hours: '',
+            opening_hours: '',
+            phone_number: '',
+            website_url: '',
             total_machines: 0,
+            total_slots: 0,
             pachinko_machines: 0,
             pachislot_machines: 0,
-            phone_number: '',
-            address: '',
-            website_url: '',
+            popular_machines: '',
+            parking_spots: 0,
+            parking_available: false,
+            smoking_allowed: true,
+            event_frequency: 0,
             is_active: true,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
@@ -662,6 +673,10 @@ export function processStoreCSV(csvText: string): ProcessedData {
           case 'city':
             storeData.city = info;
             break;
+          case 'full_address':
+            storeData.address = info.split(',')[0]; // 最初のアドレスを使用
+            storeData.full_address = info;
+            break;
           case 'nearest_station':
             storeData.nearest_station = info;
             break;
@@ -680,11 +695,28 @@ export function processStoreCSV(csvText: string): ProcessedData {
           case 'phone_number':
             storeData.phone_number = info;
             break;
-          case 'full_address':
-            storeData.address = info.split(',')[0]; // 最初のアドレスを使用
-            break;
           case 'website_url':
             storeData.website_url = info;
+            break;
+          case 'postal_code':
+            storeData.postal_code = info;
+            break;
+          case 'parking_info':
+            storeData.parking_available = info.includes('あり') || info.includes('有');
+            break;
+          case 'smoking_policy':
+            storeData.smoking_allowed = !info.includes('禁煙');
+            break;
+          case 'event_frequency':
+            storeData.event_frequency = info.includes('週') ? 
+              parseInt(info.replace(/[^\d]/g, '')) * 4 : 
+              parseInt(info.replace(/[^\d]/g, '')) || 0;
+            break;
+          case 'station_access':
+            const walkMatch = info.match(/徒歩(\d+)分/);
+            if (walkMatch) {
+              storeData.walk_minutes = parseInt(walkMatch[1]);
+            }
             break;
         }
         

@@ -935,22 +935,41 @@ async function saveStoreData(storeData: any, errors: string[]): Promise<number> 
   const stores = Array.isArray(storeData) ? storeData : storeData.stores || [];
   const storeDetails = storeData.store_details || [];
   
+  console.log(`店舗データ保存開始: 基本情報${stores.length}件、詳細情報${storeDetails.length}件`);
+  
   // 基本店舗情報の保存
   for (const store of stores) {
     try {
+      // 必須フィールドの確認
+      if (!store.store_id || !store.store_name) {
+        errors.push(`店舗${store.store_id || 'unknown'}: 必須フィールドが不足しています`);
+        continue;
+      }
+
       // 既存店舗の確認
-      const { data: existingStore } = await supabaseClient
+      const { data: existingStore, error: selectError } = await supabaseClient
         .from('stores')
         .select('store_id')
         .eq('store_id', store.store_id)
         .single();
+
+      if (selectError && selectError.code !== 'PGRST116') {
+        console.error(`店舗確認エラー (${store.store_id}):`, selectError);
+        errors.push(`店舗${store.store_id}の確認に失敗: ${selectError.message}`);
+        continue;
+      }
+
+      // データのクリーニング（undefinedを削除）
+      const cleanStore = Object.fromEntries(
+        Object.entries(store).filter(([_, value]) => value !== undefined && value !== null && value !== '')
+      );
 
       if (existingStore) {
         // 更新
         const { error } = await supabaseClient
           .from('stores')
           .update({
-            ...store,
+            ...cleanStore,
             updated_at: new Date().toISOString()
           })
           .eq('store_id', store.store_id);
@@ -966,7 +985,7 @@ async function saveStoreData(storeData: any, errors: string[]): Promise<number> 
         // 新規作成
         const { error } = await supabaseClient
           .from('stores')
-          .insert([store]);
+          .insert([cleanStore]);
 
         if (error) {
           console.error(`店舗作成エラー (${store.store_id}):`, error);
@@ -978,25 +997,43 @@ async function saveStoreData(storeData: any, errors: string[]): Promise<number> 
       }
     } catch (error) {
       console.error(`店舗処理エラー (${store.store_id}):`, error);
-      errors.push(`店舗${store.store_id}の処理エラー`);
+      errors.push(`店舗${store.store_id}の処理エラー: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
   
-  // 店舗詳細情報の保存
-  if (storeDetails.length > 0) {
+  // 店舗詳細情報の保存（基本情報の保存が成功した場合のみ）
+  if (storeDetails.length > 0 && savedCount > 0) {
     try {
       console.log(`店舗詳細データ処理開始: ${storeDetails.length}件`);
+      
+      // 保存された店舗IDのみを対象にフィルタ
+      const savedStoreIds = stores
+        .filter((_: any, index: number) => index < savedCount)
+        .map((store: any) => store.store_id);
+      
+      const validStoreDetails = storeDetails.filter((detail: any) => 
+        savedStoreIds.includes(detail.store_id)
+      );
+      
+      console.log(`有効な店舗詳細データ: ${validStoreDetails.length}件`);
       
       // upsert処理で既存データは更新、新データは追加
       const BATCH_SIZE = 100;
       let detailsSavedCount = 0;
       
-      for (let i = 0; i < storeDetails.length; i += BATCH_SIZE) {
-        const batch = storeDetails.slice(i, i + BATCH_SIZE);
+      for (let i = 0; i < validStoreDetails.length; i += BATCH_SIZE) {
+        const batch = validStoreDetails.slice(i, i + BATCH_SIZE);
+        
+        // データのクリーニング
+        const cleanBatch = batch.map((detail: any) => 
+          Object.fromEntries(
+            Object.entries(detail).filter(([_, value]) => value !== undefined && value !== null)
+          )
+        );
         
         const { data: upsertData, error: upsertError } = await supabaseClient
           .from('store_details')
-          .upsert(batch, { 
+          .upsert(cleanBatch, { 
             onConflict: 'store_id,element', // ユニーク制約に基づく
             ignoreDuplicates: false 
           })
@@ -1015,8 +1052,10 @@ async function saveStoreData(storeData: any, errors: string[]): Promise<number> 
       
     } catch (error) {
       console.error('店舗詳細データupsertエラー:', error);
-      errors.push('店舗詳細データのupsertに失敗');
+      errors.push(`店舗詳細データのupsertに失敗: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
+  } else if (storeDetails.length > 0 && savedCount === 0) {
+    errors.push('基本店舗情報の保存に失敗したため、店舗詳細データは保存されませんでした');
   }
   
   return savedCount;

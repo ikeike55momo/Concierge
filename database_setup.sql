@@ -45,4 +45,67 @@ COMMENT ON COLUMN store_details.value IS '値';
 COMMENT ON COLUMN store_details.category IS '大項目';
 COMMENT ON COLUMN store_details.importance IS '重要度（A/B/C）';
 
+-- =====================================
+-- 店舗テーブル
+-- =====================================
+
+DROP TABLE IF EXISTS stores CASCADE;
+
+CREATE TABLE stores (
+    -- 主キー
+    store_id VARCHAR(50) PRIMARY KEY,
+    
+    -- 基本情報
+    store_name VARCHAR(200) NOT NULL,
+    prefecture VARCHAR(50),
+    city VARCHAR(100),
+    address TEXT,
+    full_address TEXT,
+    postal_code VARCHAR(10),
+    nearest_station VARCHAR(100),
+    walk_minutes INTEGER DEFAULT 0,
+    distance_from_station INTEGER DEFAULT 0,
+    
+    -- 営業情報
+    business_hours VARCHAR(100),
+    opening_hours VARCHAR(100),
+    phone_number VARCHAR(20),
+    website_url TEXT,
+    
+    -- 機種情報
+    total_machines INTEGER DEFAULT 0,
+    total_slots INTEGER DEFAULT 0,
+    pachinko_machines INTEGER DEFAULT 0,
+    pachislot_machines INTEGER DEFAULT 0,
+    popular_machines TEXT,
+    
+    -- 施設情報
+    parking_spots INTEGER DEFAULT 0,
+    parking_available BOOLEAN DEFAULT false,
+    smoking_allowed BOOLEAN DEFAULT true,
+    event_frequency INTEGER DEFAULT 0,
+    
+    -- ステータス
+    is_active BOOLEAN DEFAULT true,
+    
+    -- メタデータ
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 既存テーブルにaddressカラムを追加（エラーを無視）
+ALTER TABLE stores ADD COLUMN IF NOT EXISTS address TEXT;
+
+-- インデックス
+CREATE INDEX IF NOT EXISTS idx_stores_prefecture ON stores(prefecture);
+CREATE INDEX IF NOT EXISTS idx_stores_is_active ON stores(is_active);
+CREATE INDEX IF NOT EXISTS idx_stores_store_name ON stores(store_name);
+
+-- コメント
+COMMENT ON TABLE stores IS '店舗マスター';
+COMMENT ON COLUMN stores.store_id IS '店舗ID';
+COMMENT ON COLUMN stores.store_name IS '店舗名';
+COMMENT ON COLUMN stores.address IS '住所';
+COMMENT ON COLUMN stores.business_hours IS '営業時間';
+
 -- ===================================== 
