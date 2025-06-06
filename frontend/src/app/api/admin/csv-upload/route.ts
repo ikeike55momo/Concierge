@@ -553,15 +553,29 @@ async function syncStoreProductionData(storeId: string, csvData: CsvRow[], force
  */
 async function syncMachineData(csvData: CsvRow[]) {
   const machines: any[] = [];
+  const machineDetails: any[] = [];
   const machineMap = new Map();
 
   // machine_id でグループ化
   csvData.forEach(row => {
     const machineId = row['machine_id'];
+    const element = row['element'];
+    const elementName = row['要素名'];
+    const info = row['情報'];
+    const category = row['大項目'];
+    const number = parseInt(row['number']) || 0;
+
     if (machineId) {
+      // 基本機種情報の準備
       if (!machineMap.has(machineId)) {
         machineMap.set(machineId, {
           machine_id: machineId,
+          machine_name: '',
+          manufacturer: '',
+          machine_type: 'スロット',
+          rtp_percentage: 97.0,
+          popularity_score: 0,
+          release_date: null,
           is_active: true,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
@@ -570,18 +584,10 @@ async function syncMachineData(csvData: CsvRow[]) {
 
       const machine = machineMap.get(machineId);
       
-      const info = row['情報']?.trim();
-      
-      // MVP用: 実際のmachinesテーブルに存在するカラムのみマッピング
-      switch (row['element']) {
+      // 重要な要素は基本テーブルにも保存
+      switch (element) {
         case 'machine_name_jp':
           machine.machine_name = info || `機種${machineId}`;
-          break;
-        case 'machine_name_kana':
-          machine.machine_name_kana = info;
-          break;
-        case 'series_name':
-          machine.series_name = info;
           break;
         case 'maker_name':
           machine.manufacturer = info || '不明';
@@ -589,17 +595,8 @@ async function syncMachineData(csvData: CsvRow[]) {
         case 'play_type':
           machine.machine_type = info || 'スロット';
           break;
-        case 'smart_flag':
-          machine.smart_flag = info === '1' || info?.toLowerCase() === 'true';
-          break;
-        case 'settings_count':
-          machine.settings_count = parseInt(info) || 6;
-          break;
-        case 'base_per_50coins':
-          machine.base_per_50coins = parseFloat(info);
-          break;
-        case 'at_type':
-          machine.at_type = info;
+        case 'payout_set_1':
+          machine.rtp_percentage = parseFloat(info) || 97.0;
           break;
         case 'install_rate_nationwide':
           machine.popularity_score = parseInt(info) || 0;
@@ -607,94 +604,77 @@ async function syncMachineData(csvData: CsvRow[]) {
         case 'market_in_date':
           machine.release_date = info && info !== '' ? info : null;
           break;
-        case 'payout_set_1':
-          machine.rtp_percentage = parseFloat(info) || 97.0;
-          break;
-        case 'payout_set_2':
-          machine.payout_set_2 = parseFloat(info);
-          break;
-        case 'payout_set_3':
-          machine.payout_set_3 = parseFloat(info);
-          break;
-        case 'payout_set_4':
-          machine.payout_set_4 = parseFloat(info);
-          break;
-        case 'payout_set_5':
-          machine.payout_set_5 = parseFloat(info);
-          break;
-        case 'payout_set_6':
-          machine.payout_set_6 = parseFloat(info);
-          break;
-        case 'payout_set_7':
-          machine.payout_set_7 = parseFloat(info);
-          break;
-        case 'bonus_prob_bb_set1':
-          machine.bonus_prob_bb_set1 = info;
-          break;
-        case 'bonus_prob_rb_set1':
-          machine.bonus_prob_rb_set1 = info;
-          break;
-        case 'at_initial_g':
-          machine.at_initial_g = parseInt(info);
-          break;
-        default:
-          // 処理しないフィールドは無視
-          break;
       }
+
+      // 全ての要素を詳細テーブル用データとして保存
+      machineDetails.push({
+        machine_id: machineId,
+        number: number,
+        element: element,
+        element_name: elementName,
+        value: info || '',
+        category: category || '機種マスタ',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      });
     }
   });
 
   const machineArray = Array.from(machineMap.values());
   
-  // 各機種データに必要なデフォルト値を設定
-  machineArray.forEach(machine => {
-    // 必須フィールドのデフォルト値
-    if (!machine.machine_name) {
-      machine.machine_name = `機種${machine.machine_id}`;
-    }
-    if (!machine.manufacturer) {
-      machine.manufacturer = '不明';
-    }
-    if (!machine.machine_type) {
-      machine.machine_type = 'スロット';
-    }
-    
-    // 空文字列を全てnullに変換（MVP用）
-    // テーブルに存在するカラムのみ対象
-    const allowedFields = [
-      'machine_id', 'machine_name', 'manufacturer', 'machine_type', 'popularity_score', 
-      'release_date', 'rtp_percentage', 'is_active', 'created_at', 'updated_at',
-      'machine_name_kana', 'series_name', 'smart_flag', 'settings_count', 
-      'base_per_50coins', 'at_type', 'payout_set_2', 'payout_set_3', 'payout_set_4', 
-      'payout_set_5', 'payout_set_6', 'payout_set_7', 'bonus_prob_bb_set1', 
-      'bonus_prob_rb_set1', 'at_initial_g'
-    ];
-    Object.keys(machine).forEach(key => {
-      if (allowedFields.includes(key) && (machine[key] === '' || machine[key] === undefined)) {
-        machine[key] = null;
-      } else if (!allowedFields.includes(key)) {
-        // 存在しないカラムは削除
-        delete machine[key];
-      }
-    });
-    
-    console.log(`機種データ準備完了: ${machine.machine_id} - ${machine.machine_name}`);
-    console.log('データ内容:', machine);
-  });
+  console.log(`機種マスタ処理開始: 基本情報${machineArray.length}件、詳細情報${machineDetails.length}件`);
   
-  console.log(`機種マスタ処理開始: ${machineArray.length}件の機種データ`);
-  
+  // 基本機種情報の保存
   if (machineArray.length > 0) {
-    const { error } = await supabaseClient
-      .from('machines')
-      .upsert(machineArray, { onConflict: 'machine_id' });
+    try {
+      const { error } = await supabaseClient
+        .from('machines')
+        .upsert(machineArray, { onConflict: 'machine_id' });
 
-    if (error) {
-      console.error('機種マスタSupabase挿入エラー:', error);
+      if (error) {
+        console.error('機種基本情報保存エラー:', error);
+        throw error;
+      }
+      
+      console.log(`機種基本情報保存完了: ${machineArray.length}件`);
+    } catch (error) {
+      console.error('機種基本情報保存失敗:', error);
       throw error;
     }
-    
-    console.log(`Supabaseに${machineArray.length}件の機種データを挿入完了`);
+  }
+
+  // 機種詳細情報の保存
+  if (machineDetails.length > 0) {
+    try {
+      const BATCH_SIZE = 100;
+      let detailsSavedCount = 0;
+      
+      for (let i = 0; i < machineDetails.length; i += BATCH_SIZE) {
+        const batch = machineDetails.slice(i, i + BATCH_SIZE);
+        
+        const { data: upsertData, error: upsertError } = await supabaseClient
+          .from('machine_details')
+          .upsert(batch, { 
+            onConflict: 'machine_id,element',
+            ignoreDuplicates: false 
+          })
+          .select();
+          
+        if (upsertError) {
+          console.error(`機種詳細バッチupsertエラー (${i}-${i + batch.length}):`, upsertError);
+          throw upsertError;
+        } else {
+          detailsSavedCount += upsertData?.length || batch.length;
+          console.log(`機種詳細バッチupsert完了: ${i}-${i + batch.length} (${batch.length}件)`);
+        }
+      }
+      
+      console.log(`機種詳細データupsert完了: ${detailsSavedCount}件処理`);
+      
+    } catch (error) {
+      console.error('機種詳細データupsertエラー:', error);
+      throw error;
+    }
   }
 
   // 機種データの場合、人気度スコアが未設定なら自動設定
@@ -897,8 +877,27 @@ export async function POST(request: NextRequest) {
       // 店舗データの保存
       savedCount = await saveStoreData(processedResult.data, saveErrors);
     } else if (processedResult.dataType === 'machines') {
-      // 機種データの保存
-      savedCount = await saveMachineData(processedResult.data, saveErrors);
+      // 機種データの保存（縦型構造対応）
+      try {
+        // 機種CSVも縦型構造なので、syncMachineData関数を使用
+        const lines = csvData.trim().split('\n');
+        const csvRows = lines.slice(1).map((line: string) => {
+          const values = line.split(',').map((v: string) => v.trim().replace(/^"|"$/g, ''));
+          const headers = lines[0].split(',').map((h: string) => h.trim());
+          const row: any = {};
+          headers.forEach((header: string, index: number) => {
+            row[header] = values[index] || '';
+          });
+          return row;
+        });
+        
+        const machineArray = await syncMachineData(csvRows);
+        savedCount = machineArray.length;
+        console.log(`機種データ保存完了: ${savedCount}件`);
+      } catch (error) {
+        console.error('機種データ保存エラー:', error);
+        saveErrors.push(`機種データ保存エラー: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
     }
 
     console.log(`CSV一括アップロード完了: ${savedCount}/${processedResult.processedCount}件保存`);

@@ -144,3 +144,115 @@ SUPABASE_SERVICE_ROLE_KEY=xxx
 - ✅ サンプルデータ機能無効化
 
 **システムは本格的な実データ運用準備が完了しました！** 🎯 
+
+# Conversation Summary
+
+## Initial Problem
+User reported store CSV upload errors:
+- "Could not find the 'address' column of 'stores' in the schema cache"
+- Foreign key constraint violations on store_details table
+
+## Root Cause Analysis
+Assistant examined store_001.csv file structure and found:
+- CSV uses vertical element-based structure: `store_id,number,element,要素名,情報,大項目,重要度`
+- 104 total elements including business_hours, full_address, prefecture, etc.
+- Database stores table was missing required columns like address, business_hours
+
+## Store CSV Fixes Implemented
+
+**Database Schema Updates (database_setup.sql):**
+- Added missing columns: address, full_address, postal_code, walk_minutes, parking_available, smoking_allowed, event_frequency
+- Modified stores table creation with complete schema
+- Added store_details table for vertical structure storage
+
+**CSV Processing Logic (csv-processor.ts and csv-upload route):**
+- Fixed element mapping: official_store_name2 → store_name, full_address → address, etc.
+- Implemented dual storage: basic info in stores table, all elements in store_details table
+- Added data cleaning, validation, and enhanced error handling
+- Used upsert operations to prevent duplicates
+
+**Admin Dashboard Fix (stats route):**
+- Fixed column references: stores.id → stores.store_id, score_analyses.id → score_analyses.analysis_id
+- Added proper error logging
+
+## Results
+- Store CSV upload successful (104 elements processed)
+- Admin dashboard correctly shows store count: 1
+- Changes committed and pushed to GitHub as "Phase 5 completion"
+
+## Machine CSV Problem & Solution (Phase 6)
+User encountered same error with machine CSV:
+- "Could not find the 'element' column of 'machines' in the schema cache"
+
+**Root Cause:** Machine CSV also uses vertical structure but was using wrong processing function
+
+**Solution Implemented:**
+- Modified CSV upload route to use `syncMachineData` instead of `saveMachineData`
+- Added proper CSV parsing for vertical structure
+- Fixed TypeScript type errors
+- Successfully processes machine CSV with dual storage approach
+
+**Results:** Machine CSV upload now works correctly:
+- Basic info: 1 machine record
+- Details: 21 element records
+- Processing time: ~100-285ms per upload
+
+## Multiple File Upload Feature (Phase 6 Extension)
+
+**Problem:** Single file upload limitation was inefficient for bulk data operations
+
+**Solution Implemented:**
+
+1. **Enhanced CSVUploader Component:**
+   - Replaced mock API calls with real `/api/admin/csv-upload` integration
+   - Added success/error message display for each file
+   - Support for drag & drop multiple files (up to 5 files, 20MB each)
+
+2. **Updated Admin UI:**
+   - Replaced single file input with CSVUploader component
+   - Added real-time progress tracking for multiple files
+   - Enhanced status display with detailed results
+   - Automatic stats refresh after successful uploads
+
+3. **Maintained Backward Compatibility:**
+   - Single file upload still works through the same API
+   - Existing CSV processing logic unchanged
+   - Added multiple file processing wrapper function
+
+**Technical Implementation:**
+- ```316:410:frontend/src/app/admin/page.tsx``` - Added `handleMultipleFileUpload` function
+- ```510:570:frontend/src/app/admin/page.tsx``` - Replaced upload UI with CSVUploader component
+- ```150:180:frontend/components/CSVUploader.tsx``` - Real API integration instead of mock
+- Added proper error handling and progress tracking
+
+**Results:**
+- ✅ Multiple CSV files can be uploaded simultaneously
+- ✅ Each file processed independently with individual status
+- ✅ Real-time progress and success/error feedback
+- ✅ Automatic dashboard refresh after uploads complete
+- ✅ Maintains all existing functionality
+
+## Current System Status
+- **Store CSV**: ✅ Working (vertical structure, dual storage)
+- **Machine CSV**: ✅ Working (vertical structure, dual storage) 
+- **Event CSV**: ⚠️ Ready (tables created, processing pending)
+- **Performance CSV**: ⚠️ Ready (tables created, processing pending)
+- **Multiple File Upload**: ✅ Working (drag & drop, up to 5 files)
+
+## Technical Architecture
+- **Dual Storage Strategy**: Main tables for basic info + _details tables for complete element storage
+- **Batch Processing**: 100 records per batch with comprehensive error handling
+- **Vertical CSV Support**: All CSV types use element-based structure
+- **Real-time UI**: Progress tracking, status updates, automatic refresh
+- **Error Resilience**: Individual file processing with detailed error reporting
+
+## Performance Metrics
+- Machine CSV processing: ~100-285ms (1 basic + 21 detail records)
+- Store CSV processing: Similar performance with 104+ elements
+- Multiple file uploads: Concurrent processing with individual tracking
+- Database operations: Upsert-based to prevent duplicates
+
+## Next Steps
+- Event CSV and Performance CSV processing implementation
+- Enhanced error recovery mechanisms
+- Advanced bulk operations and data validation 

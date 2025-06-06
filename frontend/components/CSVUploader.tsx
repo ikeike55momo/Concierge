@@ -23,6 +23,8 @@ interface UploadedFile {
   status: 'pending' | 'uploading' | 'success' | 'error';
   /** エラーメッセージ（エラー時） */
   errorMessage?: string;
+  /** 成功メッセージ（成功時） */
+  successMessage?: string;
   /** アップロード進捗（0-100%） */
   progress: number;
   /** ファイルID（成功時） */
@@ -153,30 +155,54 @@ const CSVUploader: React.FC<CSVUploaderProps> = ({
             : f
         ));
 
-        // サーバーへのアップロード（模擬）
+        // サーバーへのアップロード（実際のAPI連携）
         try {
-          // TODO: 実際のAPI呼び出しに置き換え
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          const csvText = await file.text();
           
-          const fileId = `file_${Date.now()}_${i}`;
+          const response = await fetch('/api/admin/csv-upload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              csvData: csvText,
+              // dataTypeは自動判定させる
+            })
+          });
+
+          const result = await response.json();
           
-          setUploadedFiles(prev => prev.map((f, idx) => 
-            idx === fileIndex 
-              ? { 
-                  ...f, 
-                  status: 'success', 
-                  progress: 100,
-                  fileId 
-                }
-              : f
-          ));
+          if (result.success) {
+            const fileId = `file_${Date.now()}_${i}`;
+            
+            setUploadedFiles(prev => prev.map((f, idx) => 
+              idx === fileIndex 
+                ? { 
+                    ...f, 
+                    status: 'success', 
+                    progress: 100,
+                    fileId,
+                    successMessage: result.message
+                  }
+                : f
+            ));
+          } else {
+            setUploadedFiles(prev => prev.map((f, idx) => 
+              idx === fileIndex 
+                ? { 
+                    ...f, 
+                    status: 'error', 
+                    errorMessage: result.error || 'アップロードに失敗しました'
+                  }
+                : f
+            ));
+          }
         } catch (uploadError) {
+          console.error('ファイルアップロードエラー:', uploadError);
           setUploadedFiles(prev => prev.map((f, idx) => 
             idx === fileIndex 
               ? { 
                   ...f, 
                   status: 'error', 
-                  errorMessage: 'アップロードに失敗しました' 
+                  errorMessage: uploadError instanceof Error ? uploadError.message : 'アップロードに失敗しました' 
                 }
               : f
           ));
@@ -330,6 +356,11 @@ const CSVUploader: React.FC<CSVUploaderProps> = ({
                         {file.errorMessage && (
                           <p className="text-xs text-red-600 mt-1">
                             {file.errorMessage}
+                          </p>
+                        )}
+                        {file.successMessage && file.status === 'success' && (
+                          <p className="text-xs text-green-600 mt-1">
+                            {file.successMessage}
                           </p>
                         )}
                       </div>

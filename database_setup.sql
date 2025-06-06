@@ -108,4 +108,86 @@ COMMENT ON COLUMN stores.store_name IS '店舗名';
 COMMENT ON COLUMN stores.address IS '住所';
 COMMENT ON COLUMN stores.business_hours IS '営業時間';
 
+-- =====================================
+-- 機種詳細テーブル（縦持ち構造対応）
+-- =====================================
+
+CREATE TABLE IF NOT EXISTS machine_details (
+    id SERIAL PRIMARY KEY,
+    machine_id VARCHAR(50) NOT NULL,
+    number INTEGER NOT NULL,
+    element VARCHAR(100) NOT NULL,
+    element_name VARCHAR(200),
+    value TEXT,
+    category VARCHAR(100),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(machine_id, element)
+);
+
+-- インデックス
+CREATE INDEX IF NOT EXISTS idx_machine_details_machine_id ON machine_details(machine_id);
+CREATE INDEX IF NOT EXISTS idx_machine_details_element ON machine_details(element);
+CREATE INDEX IF NOT EXISTS idx_machine_details_category ON machine_details(category);
+
+-- コメント
+COMMENT ON TABLE machine_details IS '機種詳細情報（縦持ち構造）';
+COMMENT ON COLUMN machine_details.machine_id IS '機種ID';
+COMMENT ON COLUMN machine_details.element IS '要素名';
+COMMENT ON COLUMN machine_details.value IS '値';
+
+-- =====================================
+-- イベント詳細テーブル（縦持ち構造対応）
+-- =====================================
+
+CREATE TABLE IF NOT EXISTS event_details (
+    id SERIAL PRIMARY KEY,
+    event_id VARCHAR(50) NOT NULL,
+    number INTEGER NOT NULL,
+    element VARCHAR(100) NOT NULL,
+    element_name VARCHAR(200),
+    value TEXT,
+    importance VARCHAR(10),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(event_id, element)
+);
+
+-- インデックス
+CREATE INDEX IF NOT EXISTS idx_event_details_event_id ON event_details(event_id);
+CREATE INDEX IF NOT EXISTS idx_event_details_element ON event_details(element);
+CREATE INDEX IF NOT EXISTS idx_event_details_importance ON event_details(importance);
+
+-- コメント
+COMMENT ON TABLE event_details IS 'イベント詳細情報（縦持ち構造）';
+COMMENT ON COLUMN event_details.event_id IS 'イベントID';
+COMMENT ON COLUMN event_details.element IS '要素名';
+COMMENT ON COLUMN event_details.value IS '値';
+
+-- =====================================
+-- パフォーマンス詳細テーブル（縦持ち構造対応）
+-- =====================================
+
+CREATE TABLE IF NOT EXISTS performance_details (
+    id SERIAL PRIMARY KEY,
+    store_id VARCHAR(50) NOT NULL,
+    number INTEGER NOT NULL,
+    element VARCHAR(100) NOT NULL,
+    element_name VARCHAR(200),
+    value TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(store_id, element)
+);
+
+-- インデックス
+CREATE INDEX IF NOT EXISTS idx_performance_details_store_id ON performance_details(store_id);
+CREATE INDEX IF NOT EXISTS idx_performance_details_element ON performance_details(element);
+
+-- コメント
+COMMENT ON TABLE performance_details IS '営業実績詳細情報（縦持ち構造）';
+COMMENT ON COLUMN performance_details.store_id IS '店舗ID';
+COMMENT ON COLUMN performance_details.element IS '要素名';
+COMMENT ON COLUMN performance_details.value IS '値';
+
 -- ===================================== 

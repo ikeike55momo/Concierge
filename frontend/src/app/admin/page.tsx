@@ -12,6 +12,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import CSVUploader from '../../../components/CSVUploader';
 
 interface SystemStats {
   /** 総店舗数 */
@@ -310,62 +311,101 @@ export default function AdminPage() {
   };
 
   /**
-   * CSVファイルアップロード処理
+   * 複数CSVファイルアップロード処理
    */
-  const handleFileUpload = async (file: File) => {
-    if (!file) return;
+  const handleMultipleFileUpload = async (files: any[]) => {
+    setUploadProgress({ uploading: true, message: `${files.length}ファイルを処理中...` });
     
-    setUploadProgress({ uploading: true, message: 'CSVファイルを処理中...' });
+    let successCount = 0;
+    let errorCount = 0;
+    const results: string[] = [];
     
     try {
-      const csvText = await file.text();
-      
-      const response = await fetch('/api/admin/csv-upload', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          csvData: csvText,
-          // dataTypeは自動判定させる
-        })
-      });
-
-      const result = await response.json();
-      
-      if (result.success) {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
         setUploadProgress({ 
-          uploading: false, 
-          message: `✅ ${result.message}`,
-          details: result.details
+          uploading: true, 
+          message: `${file.name} を処理中... (${i + 1}/${files.length})` 
         });
-        setMessage({ type: 'success', text: result.message });
+        
+        try {
+          // ファイルを読み込み（File オブジェクトの場合）
+          let csvText: string;
+          if (file instanceof File) {
+            csvText = await file.text();
+          } else {
+            // CSVUploaderから渡される場合はnameプロパティのみの可能性
+            console.warn('ファイルオブジェクトが正しくありません:', file);
+            continue;
+          }
+          
+          const response = await fetch('/api/admin/csv-upload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              csvData: csvText,
+              // dataTypeは自動判定させる
+            })
+          });
+
+          const result = await response.json();
+          
+          if (result.success) {
+            successCount++;
+            results.push(`✅ ${file.name}: ${result.message}`);
+          } else {
+            errorCount++;
+            results.push(`❌ ${file.name}: ${result.error}`);
+          }
+          
+        } catch (fileError) {
+          errorCount++;
+          results.push(`❌ ${file.name}: 処理エラー`);
+          console.error(`ファイル ${file.name} の処理エラー:`, fileError);
+        }
+      }
+      
+      // 結果をまとめて表示
+      const summaryMessage = `${successCount}件成功, ${errorCount}件失敗`;
+      setUploadProgress({ 
+        uploading: false, 
+        message: summaryMessage,
+        details: { results }
+      });
+      
+      if (successCount > 0) {
+        setMessage({ type: 'success', text: summaryMessage });
         setForceUpdate(!forceUpdate); // データを再取得
       } else {
-        setUploadProgress({ 
-          uploading: false, 
-          message: `❌ ${result.error}`,
-          details: result.details
-        });
-        setMessage({ type: 'error', text: result.error });
+        setMessage({ type: 'error', text: 'すべてのファイルの処理に失敗しました' });
       }
       
       setTimeout(() => {
         setUploadProgress({ uploading: false, message: '' });
         setMessage(null);
-      }, 5000);
+      }, 8000);
       
     } catch (error) {
-      console.error('ファイルアップロードエラー:', error);
+      console.error('複数ファイルアップロードエラー:', error);
       setUploadProgress({ 
         uploading: false, 
         message: `❌ アップロードエラー: ${error instanceof Error ? error.message : 'Unknown error'}`
       });
-      setMessage({ type: 'error', text: 'ファイルのアップロードに失敗しました' });
+      setMessage({ type: 'error', text: '複数ファイルのアップロードに失敗しました' });
       
       setTimeout(() => {
         setUploadProgress({ uploading: false, message: '' });
         setMessage(null);
       }, 5000);
     }
+  };
+
+  /**
+   * CSVファイルアップロード処理（単一ファイル・下位互換性用）
+   */
+  const handleFileUpload = async (file: File) => {
+    if (!file) return;
+    await handleMultipleFileUpload([file]);
   };
 
   /**
@@ -471,111 +511,98 @@ export default function AdminPage() {
               </p>
             </div>
             
-            {/* CSV アップロード機能 */}
+            {/* CSV アップロード機能（複数ファイル対応） */}
             <div className="bg-white border border-gray-200 rounded-lg p-6">
               <h4 className="text-md font-medium text-gray-900 mb-4">
-                📁 CSV ファイルアップロード & データベース同期
+                📁 CSV ファイル一括アップロード & データベース同期
               </h4>
               
-                             <div className="space-y-4">
-                 {/* ファイル選択 */}
-                 <div>
-                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                     CSVファイルを選択
-                   </label>
-                   <input
-                     type="file"
-                     accept=".csv"
-                     onChange={(e) => {
-                       if (e.target.files) {
-                         handleFileUpload(e.target.files[0]);
-                       }
-                     }}
-                     disabled={uploadProgress.uploading}
-                     className="block w-full text-sm text-gray-500
-                       file:mr-4 file:py-2 file:px-4
-                       file:rounded-md file:border-0
-                       file:text-sm file:font-semibold
-                       file:bg-blue-50 file:text-blue-700
-                       hover:file:bg-blue-100
-                       disabled:opacity-50 disabled:cursor-not-allowed"
-                   />
-                 </div>
+              <div className="space-y-4">
+                {/* 強制更新オプション */}
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    id="forceUpdate"
+                    checked={forceUpdate}
+                    onChange={(e) => setForceUpdate(e.target.checked)}
+                    disabled={uploadProgress.uploading}
+                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded disabled:opacity-50"
+                  />
+                  <label htmlFor="forceUpdate" className="text-sm text-gray-700">
+                    <span className="font-medium">強制更新</span>
+                    <span className="text-gray-500 ml-1">（既存データを上書き）</span>
+                  </label>
+                </div>
+                
+                <div className="text-xs text-gray-500 bg-gray-50 p-2 rounded">
+                  <strong>💡 ヒント:</strong> 
+                  複数のCSVファイルをドラッグ&ドロップで一度にアップロードできます。
+                  通常は既存データをスキップして高速処理します。
+                </div>
 
-                 {/* 強制更新オプション */}
-                 <div className="flex items-center space-x-2">
-                   <input
-                     type="checkbox"
-                     id="forceUpdate"
-                     checked={forceUpdate}
-                     onChange={(e) => setForceUpdate(e.target.checked)}
-                     disabled={uploadProgress.uploading}
-                     className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded disabled:opacity-50"
-                   />
-                   <label htmlFor="forceUpdate" className="text-sm text-gray-700">
-                     <span className="font-medium">強制更新</span>
-                     <span className="text-gray-500 ml-1">（既存データを上書き）</span>
-                   </label>
-                 </div>
-                 
-                 <div className="text-xs text-gray-500 bg-gray-50 p-2 rounded">
-                   <strong>💡 ヒント:</strong> 
-                   通常は既存データをスキップして高速処理します。
-                   データを修正して再処理したい場合は「強制更新」をチェックしてください。
-                 </div>
+                {/* CSVUploader コンポーネント */}
+                <CSVUploader
+                  onUploadComplete={(files) => {
+                    console.log(`${files.length}ファイル処理完了:`, files);
+                    // 実際のファイル処理は完了しているため、統計データを更新
+                    const successCount = files.filter(f => f.status === 'success').length;
+                    if (successCount > 0) {
+                      setMessage({ type: 'success', text: `${successCount}ファイルの処理が完了しました` });
+                      setForceUpdate(!forceUpdate); // 統計データを再取得
+                    }
+                    setTimeout(() => setMessage(null), 5000);
+                  }}
+                  onUploadError={(error) => {
+                    console.error('CSVアップロードエラー:', error);
+                    setMessage({ type: 'error', text: error });
+                    setTimeout(() => setMessage(null), 3000);
+                  }}
+                  maxFiles={5}
+                  maxSizeMB={20}
+                />
 
-                 {/* アップロード状況 */}
-                 {uploadProgress.uploading && (
-                   <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                     <div className="flex items-center gap-2 mb-2">
-                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
-                       <span className="text-blue-800 text-sm font-medium">処理中...</span>
-                     </div>
-                     <p className="text-blue-700 text-sm">{uploadProgress.message}</p>
-                   </div>
-                 )}
+                {/* アップロード状況 */}
+                {uploadProgress.uploading && (
+                  <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
+                      <span className="text-blue-800 text-sm font-medium">処理中...</span>
+                    </div>
+                    <p className="text-blue-700 text-sm">{uploadProgress.message}</p>
+                  </div>
+                )}
 
-                 {!uploadProgress.uploading && uploadProgress.message && (
-                   <div className={`mt-4 p-3 border rounded-lg ${
-                     uploadProgress.message.startsWith('✅') 
-                       ? 'bg-green-50 border-green-200 text-green-800' 
-                       : 'bg-red-50 border-red-200 text-red-800'
-                   }`}>
-                     <p className="text-sm font-medium">{uploadProgress.message}</p>
-                     {uploadProgress.details && (
-                       <div className="mt-2 text-xs space-y-1">
-                         <div>データ種別: <span className="font-medium">{uploadProgress.details.dataType}</span></div>
-                         <div>処理件数: <span className="font-medium">{uploadProgress.details.processedCount}</span></div>
-                         <div>保存件数: <span className="font-medium">{uploadProgress.details.savedCount}</span></div>
-                         {uploadProgress.details.errorCount > 0 && (
-                           <div>エラー件数: <span className="font-medium text-red-600">{uploadProgress.details.errorCount}</span></div>
-                         )}
-                         {uploadProgress.details.errors && uploadProgress.details.errors.length > 0 && (
-                           <details className="mt-2">
-                             <summary className="cursor-pointer text-xs">エラー詳細を表示</summary>
-                             <div className="mt-1 pl-2 border-l-2 border-gray-300">
-                               {uploadProgress.details.errors.map((error: string, index: number) => (
-                                 <div key={index} className="text-xs text-red-600">{error}</div>
-                               ))}
-                             </div>
-                           </details>
-                         )}
-                       </div>
-                     )}
-                   </div>
-                 )}
+                {!uploadProgress.uploading && uploadProgress.message && (
+                  <div className={`mt-4 p-3 border rounded-lg ${
+                    uploadProgress.message.includes('成功') 
+                      ? 'bg-green-50 border-green-200 text-green-800' 
+                      : 'bg-red-50 border-red-200 text-red-800'
+                  }`}>
+                    <p className="text-sm font-medium">{uploadProgress.message}</p>
+                    {uploadProgress.details && uploadProgress.details.results && (
+                      <details className="mt-2">
+                        <summary className="cursor-pointer text-xs font-medium">詳細結果を表示</summary>
+                        <div className="mt-1 pl-2 border-l-2 border-gray-300 space-y-1">
+                          {uploadProgress.details.results.map((result: string, index: number) => (
+                            <div key={index} className="text-xs">{result}</div>
+                          ))}
+                        </div>
+                      </details>
+                    )}
+                  </div>
+                )}
 
-                 {/* 対応ファイル形式の説明 */}
-                 <div className="text-sm text-gray-600">
-                   <h5 className="font-medium mb-2">対応ファイル形式:</h5>
-                   <ul className="list-disc list-inside space-y-1">
-                     <li><code>store_*.csv</code> - 店舗マスタ</li>
-                     <li><code>store_production_info_*.csv</code> - 店舗出玉情報</li>
-                     <li><code>machines_info.csv</code> - 機種マスタ</li>
-                     <li><code>event_*.csv</code> - イベントマスタ</li>
-                   </ul>
-                 </div>
-               </div>
+                {/* 対応ファイル形式の説明 */}
+                <div className="text-sm text-gray-600">
+                  <h5 className="font-medium mb-2">対応ファイル形式:</h5>
+                  <ul className="list-disc list-inside space-y-1">
+                    <li><code>store_*.csv</code> - 店舗マスタ（縦型構造）</li>
+                    <li><code>machines_info_*.csv</code> - 機種マスタ（縦型構造）</li>
+                    <li><code>event_*.csv</code> - イベントマスタ（縦型構造）</li>
+                    <li><code>store_production_info_*.csv</code> - 店舗出玉情報（縦型構造）</li>
+                  </ul>
+                </div>
+              </div>
             </div>
             
             <div className="mt-8 bg-blue-50 border border-blue-200 rounded-lg p-4">
