@@ -39,43 +39,36 @@ interface CsvRow {
   [key: string]: string;
 }
 
-interface StoreRow {
+interface StoreData {
   store_id: string;
-  number: string;
-  element: string;
-  要素名: string;
-  情報: string;
-  大項目?: string;
-  重要度?: string;
+  store_name?: string;
+  prefecture?: string;
+  city?: string;
+  full_address?: string;
+  total_machines?: number;
+  pachinko_machines?: number;
+  pachislot_machines?: number;
+  walk_minutes?: string;
+  distance_from_station?: string;
+  weekday_opening_time?: string;
+  weekday_closing_time?: string;
+  latitude?: number;
+  longitude?: number;
+  establishment_date?: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
-interface EventRow {
-  event_id: string;
-  number: string;
-  element: string;
-  要素名: string;
-  情報: string;
-  重要度?: string;
-}
-
-interface MachineRow {
+interface MachineData {
   machine_id: string;
-  number: string;
-  element: string;
-  要素名: string;
-  情報: string;
-  大項目?: string;
-}
-
-/**
- * CSV タイプ判定
- */
-function determineCsvType(filename: string): string {
-  if (filename.startsWith('store_production_info_')) return 'store_production_info';
-  if (filename.startsWith('store_')) return 'store';
-  if (filename.startsWith('machines_info')) return 'machines';
-  if (filename.startsWith('event_')) return 'event';
-  return 'unknown';
+  machine_name: string;
+  manufacturer?: string;
+  machine_type?: string;
+  popularity_score?: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 /**
@@ -614,152 +607,117 @@ async function syncStoreProductionData(storeId: string, csvData: CsvRow[], force
 }
 
 /**
- * 機種マスタ CSV → Supabase 変換（新フォーマット対応）
+ * 機種マスタ CSV → Supabase 変換
  */
 async function syncMachineData(csvData: CsvRow[]) {
-  const machines: any[] = [];
-  const machineDetails: any[] = [];
-  const machineMap = new Map();
-
-  // machine_id でグループ化
+  console.log('機種マスタ処理開始: 基本情報1件、詳細情報' + csvData.length + '件');
+  
+  // CSVデータから機種基本情報を抽出
+  const machineId = csvData[0]?.machine_id || '001';
+  let machineName = '';
+  
+  // 機種名を特定（machine_name_imageまたは最初の有効な情報から）
+  const machineNameRow = csvData.find(row => 
+    ['machine_name_image', 'machine_name', 'model_name'].includes(row.element)
+  );
+  machineName = machineNameRow?.情報 || `機種${machineId}`;
+  
+  // 機種基本情報
+  const machineData: MachineData = {
+    machine_id: machineId,
+    machine_name: machineName,
+    manufacturer: '',
+    machine_type: 'pachislot',
+    popularity_score: estimateMachinePopularity(machineName),
+    is_active: true,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  };
+  
+  // 詳細情報から追加のフィールドを抽出
   csvData.forEach(row => {
-    const machineId = row['machine_id'];
-    const element = row['element'];
-    const elementName = row['要素名'];
-    const info = row['情報'];
-    const category = row['大項目'];
-    const number = parseInt(row['number']) || 0;
-
-    if (machineId) {
-      // 基本機種情報の準備
-      if (!machineMap.has(machineId)) {
-        machineMap.set(machineId, {
-          machine_id: machineId,
-          machine_name: '',
-          manufacturer: '',
-          machine_type: 'スロット',
-          rtp_percentage: 97.0,
-          popularity_score: 0,
-          release_date: null,
-          is_active: true,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        });
-      }
-
-      const machine = machineMap.get(machineId);
-      
-      // 重要な要素は基本テーブルにも保存
-      switch (element) {
-        case 'machine_name_jp':
-          machine.machine_name = info || `機種${machineId}`;
-          break;
-        case 'maker_name':
-          machine.manufacturer = info || '不明';
-          break;
-        case 'play_type':
-          machine.machine_type = info || 'スロット';
-          break;
-        case 'payout_set_1':
-          machine.rtp_percentage = parseFloat(info) || 97.0;
-          break;
-        case 'install_rate_nationwide':
-          machine.popularity_score = parseInt(info) || 0;
-          break;
-        case 'market_in_date':
-          machine.release_date = info && info !== '' ? info : null;
-          break;
-      }
-
-      // 全ての要素を詳細テーブル用データとして保存
-      machineDetails.push({
-        machine_id: machineId,
-        number: number,
-        element: element,
-        element_name: elementName,
-        value: info || '',
-        category: category || '機種マスタ',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      });
+    switch (row.element) {
+      case 'manufacturer':
+        machineData.manufacturer = row.情報;
+        break;
+      case 'machine_type':
+        machineData.machine_type = row.情報.includes('パチンコ') ? 'pachinko' : 'pachislot';
+        break;
     }
   });
-
-  const machineArray = Array.from(machineMap.values());
   
-  console.log(`機種マスタ処理開始: 基本情報${machineArray.length}件、詳細情報${machineDetails.length}件`);
+  // Supabase に機種基本情報を保存
+  const { error: machineError } = await supabaseClient
+    .from('machines')
+    .upsert(machineData, { onConflict: 'machine_id' });
   
-  // 基本機種情報の保存
-  if (machineArray.length > 0) {
-    try {
-      const { error } = await supabaseClient
-        .from('machines')
-        .upsert(machineArray, { onConflict: 'machine_id' });
+  if (machineError) {
+    throw new Error(`機種基本情報保存エラー: ${machineError.message}`);
+  }
+  
+  console.log('機種基本情報保存完了: 1件');
+  
+  // 機種詳細情報の準備
+  const machineDetails = csvData.map(row => ({
+    machine_id: machineId,
+    element: row.element,
+    element_name: row.要素名,
+    information: row.情報,
+    importance: parseInt(row.重要度 || '0') || 0,
+    category: row.大項目 || null,
+    number: parseInt(row.number) || 0,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  }));
+  
+  // バッチでupsert実行
+  const BATCH_SIZE = 100;
+  let totalProcessed = 0;
+  
+  for (let i = 0; i < machineDetails.length; i += BATCH_SIZE) {
+    const batch = machineDetails.slice(i, i + BATCH_SIZE);
+    const batchEnd = Math.min(i + BATCH_SIZE - 1, machineDetails.length - 1);
+    
+    const { error: detailError } = await supabaseClient
+      .from('machine_details')
+      .upsert(batch, { onConflict: 'machine_id,element' });
+    
+    if (detailError) {
+      throw new Error(`機種詳細バッチupsertエラー (${i}-${batchEnd}): ${detailError.message}`);
+    }
+    
+    console.log(`機種詳細バッチupsert完了: ${i}-${batchEnd} (${batch.length}件)`);
+    totalProcessed += batch.length;
+  }
+  
+  console.log(`機種詳細データupsert完了: ${totalProcessed}件処理`);
+  return machineData;
+}
 
-      if (error) {
-        console.error('機種基本情報保存エラー:', error);
-        throw error;
-      }
-      
-      console.log(`機種基本情報保存完了: ${machineArray.length}件`);
-    } catch (error) {
-      console.error('機種基本情報保存失敗:', error);
-      throw error;
+function estimateMachinePopularity(machineName: string): number {
+  // 人気機種のキーワードベース推定
+  const popularKeywords = [
+    'ジャグラー', 'バジリスク', 'ゴジラ', 'エヴァンゲリオン', 'パチスロ',
+    'ハナハナ', 'アイムジャグラー', 'ファンキージャグラー', 'マイジャグラー',
+    'ゴッド', 'リゼロ', 'このすば', '押忍番長', 'コードギアス'
+  ];
+  
+  const lowerName = machineName.toLowerCase();
+  let score = 30; // ベーススコア
+  
+  for (const keyword of popularKeywords) {
+    if (lowerName.includes(keyword.toLowerCase())) {
+      score += 15;
+      break;
     }
   }
-
-  // 機種詳細情報の保存
-  if (machineDetails.length > 0) {
-    try {
-      const BATCH_SIZE = 100;
-      let detailsSavedCount = 0;
-      
-      for (let i = 0; i < machineDetails.length; i += BATCH_SIZE) {
-        const batch = machineDetails.slice(i, i + BATCH_SIZE);
-        
-        const { data: upsertData, error: upsertError } = await supabaseClient
-          .from('machine_details')
-          .upsert(batch, { 
-            onConflict: 'machine_id,element',
-            ignoreDuplicates: false 
-          })
-          .select();
-          
-        if (upsertError) {
-          console.error(`機種詳細バッチupsertエラー (${i}-${i + batch.length}):`, upsertError);
-          throw upsertError;
-        } else {
-          detailsSavedCount += upsertData?.length || batch.length;
-          console.log(`機種詳細バッチupsert完了: ${i}-${i + batch.length} (${batch.length}件)`);
-        }
-      }
-      
-      console.log(`機種詳細データupsert完了: ${detailsSavedCount}件処理`);
-      
-    } catch (error) {
-      console.error('機種詳細データupsertエラー:', error);
-      throw error;
-    }
+  
+  // 新機種は人気度アップ
+  if (lowerName.includes('新') || lowerName.includes('最新')) {
+    score += 10;
   }
-
-  // 機種データの場合、人気度スコアが未設定なら自動設定
-  if (machineArray.length > 0) {
-    for (const machine of machineArray) {
-      if (machine.popularity_score === 0 || machine.popularity_score === null) {
-        // 機種名に基づいて人気度を推定
-        const popularityScore = estimateMachinePopularity(machine.machine_name);
-        
-        await supabaseClient
-          .from('machines')
-          .update({ popularity_score: popularityScore })
-          .eq('machine_id', machine.machine_id);
-          
-        machine.popularity_score = popularityScore;
-      }
-    }
-  }
-
-  return machineArray;
+  
+  return Math.min(100, Math.max(0, score));
 }
 
 /**
@@ -832,37 +790,6 @@ async function syncEventData(eventId: string, csvData: CsvRow[]) {
 }
 
 /**
- * 機種名から人気度を推定
- */
-function estimateMachinePopularity(machineName: string): number {
-  // 人気のキーワードに基づいてスコアを算出
-  const popularKeywords = [
-    { keyword: 'ゴッドイーター', score: 85 },
-    { keyword: 'To LOVEる', score: 80 },
-    { keyword: 'バイオハザード', score: 90 },
-    { keyword: 'ディスクアップ', score: 75 },
-    { keyword: 'スマスロ', score: 5 }, // スマスロボーナス
-    { keyword: '政宗', score: 70 },
-    { keyword: 'ガールズパンツァー', score: 75 },
-    { keyword: 'エヴァンゲリオン', score: 85 }
-  ];
-
-  let baseScore = 50; // デフォルトスコア
-
-  for (const { keyword, score } of popularKeywords) {
-    if (machineName.includes(keyword)) {
-      if (keyword === 'スマスロ') {
-        baseScore += score; // スマスロはボーナス加算
-      } else {
-        baseScore = Math.max(baseScore, score); // より高いスコアを採用
-      }
-    }
-  }
-
-  return Math.min(baseScore, 95); // 最大95点
-}
-
-/**
  * CSV一括アップロードAPI
  * 
  * POST /api/admin/csv-upload
@@ -875,338 +802,168 @@ function estimateMachinePopularity(machineName: string): number {
  */
 export async function POST(request: NextRequest) {
   try {
-    const { csvData, dataType } = await request.json();
-
-    if (!csvData) {
-      return NextResponse.json({
-        success: false,
-        error: 'CSVデータが提供されていません'
-      }, { status: 400 });
-    }
-
     console.log('CSV一括アップロード開始...');
-
-    // CSVデータを処理
-    let processedResult: ProcessedData;
     
-    if (dataType) {
-      // 手動でデータタイプが指定された場合
+    const formData = await request.formData();
+    const file = formData.get('file') as File;
+    
+    if (!file) {
+      return NextResponse.json({ error: 'ファイルが選択されていません' }, { status: 400 });
+    }
+    
+    const content = await file.text();
+    const csvData = parseCsvContent(content);
+    
+    if (csvData.length === 0) {
+      return NextResponse.json({ error: 'CSVデータが空です' }, { status: 400 });
+    }
+    
+    // データタイプを自動検出（ヘッダーから）
+    const headers = Object.keys(csvData[0] || {});
+    const dataType = detectDataType(headers);
+    console.log('検出されたデータタイプ:', dataType);
+    
+    let savedCount = 0;
+    const errors: string[] = [];
+    
+    try {
       switch (dataType) {
         case 'stores':
-          processedResult = processStoreCSV(csvData);
+          const storeData = processStoreCSV(content);
+          savedCount = await saveStoreData(storeData, errors);
           break;
         case 'machines':
-          processedResult = processMachineCSV(csvData);
+          const processedData = processMachineCSV(content);
+          if (processedData.dataType === 'machines') {
+            const result = await syncMachineData(csvData);
+            console.log('機種データ保存完了: 1件');
+            savedCount = 1;
+          }
           break;
         default:
-          return NextResponse.json({
-            success: false,
-            error: `サポートされていないデータタイプ: ${dataType}`
-          }, { status: 400 });
+          throw new Error(`対応していないデータタイプ: ${dataType}`);
       }
-    } else {
-      // 自動判定
-      const lines = csvData.trim().split('\n');
-      const headers = lines[0].split(',').map((h: string) => h.trim());
-      const detectedType = detectDataType(headers);
-      
-      switch (detectedType) {
-        case 'stores':
-          processedResult = processStoreCSV(csvData);
-          break;
-        case 'machines':
-          processedResult = processMachineCSV(csvData);
-          break;
-        default:
-          return NextResponse.json({
-            success: false,
-            error: 'CSVデータの形式を自動判定できませんでした',
-            details: `検出されたヘッダー: ${headers.join(', ')}`
-          }, { status: 400 });
+    } catch (error) {
+      console.error('データ保存エラー:', error);
+      if (error instanceof Error) {
+        errors.push(error.message);
       }
     }
-
-    if (processedResult.processedCount === 0) {
-      return NextResponse.json({
-        success: false,
-        error: '有効なデータが処理されませんでした',
-        details: processedResult.errors
-      }, { status: 400 });
-    }
-
-    // データベースに保存
-    let savedCount = 0;
-    const saveErrors: string[] = [];
     
-    if (processedResult.dataType === 'stores') {
-      // 店舗データの保存
-      savedCount = await saveStoreData(processedResult.data, saveErrors);
-    } else if (processedResult.dataType === 'machines') {
-      // 機種データの保存（縦型構造対応）
-      try {
-        // 機種CSVも縦型構造なので、syncMachineData関数を使用
-        const lines = csvData.trim().split('\n');
-        const csvRows = lines.slice(1).map((line: string) => {
-          const values = line.split(',').map((v: string) => v.trim().replace(/^"|"$/g, ''));
-          const headers = lines[0].split(',').map((h: string) => h.trim());
-          const row: any = {};
-          headers.forEach((header: string, index: number) => {
-            row[header] = values[index] || '';
-          });
-          return row;
-        });
-        
-        const machineArray = await syncMachineData(csvRows);
-        savedCount = machineArray.length;
-        console.log(`機種データ保存完了: ${savedCount}件`);
-      } catch (error) {
-        console.error('機種データ保存エラー:', error);
-        saveErrors.push(`機種データ保存エラー: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      }
-    }
-
-    console.log(`CSV一括アップロード完了: ${savedCount}/${processedResult.processedCount}件保存`);
-
-    return NextResponse.json({
-      success: true,
-      message: `${savedCount}件のデータを正常にアップロードしました`,
-      details: {
-        dataType: processedResult.dataType,
-        processedCount: processedResult.processedCount,
-        savedCount,
-        errorCount: processedResult.errorCount + saveErrors.length,
-        errors: [...processedResult.errors, ...saveErrors].slice(0, 10)
-      }
-    });
-
+    const result = {
+      success: savedCount > 0,
+      message: savedCount > 0 ? 
+        `CSV一括アップロード完了: ${savedCount}/${csvData.length}件保存` :
+        'データ保存に失敗しました',
+      savedCount,
+      totalCount: csvData.length,
+      errors: errors.length > 0 ? errors : undefined
+    };
+    
+    console.log(result.message);
+    return NextResponse.json(result);
+    
   } catch (error) {
-    console.error('CSV一括アップロードエラー:', error);
-    return NextResponse.json({
-      success: false,
-      error: 'CSV一括アップロードに失敗しました',
-      details: error instanceof Error ? error.message : 'Unknown error'
-    }, { status: 500 });
+    console.error('CSV処理エラー:', error);
+    return NextResponse.json(
+      { 
+        error: error instanceof Error ? error.message : 'CSVアップロードに失敗しました',
+        success: false 
+      }, 
+      { status: 500 }
+    );
   }
 }
 
 /**
  * 店舗データの保存
  */
-async function saveStoreData(storeData: any, errors: string[]): Promise<number> {
-  let savedCount = 0;
-  
-  // データ構造の確認
-  const stores = Array.isArray(storeData) ? storeData : storeData.stores || [];
-  const storeDetails = storeData.store_details || [];
-  
-  console.log(`店舗データ保存開始: 基本情報${stores.length}件、詳細情報${storeDetails.length}件`);
-  
-  // 基本店舗情報の保存
-  for (const store of stores) {
-    try {
-      // 必須フィールドの確認
-      if (!store.store_id || !store.store_name) {
-        errors.push(`店舗${store.store_id || 'unknown'}: 必須フィールドが不足しています`);
-        continue;
-      }
-
-      // 既存店舗の確認
-      const { data: existingStore, error: selectError } = await supabaseClient
-        .from('stores')
-        .select('store_id')
-        .eq('store_id', store.store_id)
-        .single();
-
-      if (selectError && selectError.code !== 'PGRST116') {
-        console.error(`店舗確認エラー (${store.store_id}):`, selectError);
-        errors.push(`店舗${store.store_id}の確認に失敗: ${selectError.message}`);
-        continue;
-      }
-
-      // データのクリーニング（undefinedを削除）
-      const cleanStore = Object.fromEntries(
-        Object.entries(store).filter(([_, value]) => value !== undefined && value !== null && value !== '')
-      );
-
-      if (existingStore) {
-        // 更新
-        const { error } = await supabaseClient
-          .from('stores')
-          .update({
-            ...cleanStore,
-            updated_at: new Date().toISOString()
-          })
-          .eq('store_id', store.store_id);
-
-        if (error) {
-          console.error(`店舗更新エラー (${store.store_id}):`, error);
-          errors.push(`店舗${store.store_id}の更新に失敗: ${error.message}`);
-        } else {
-          savedCount++;
-          console.log(`店舗更新完了: ${store.store_name} (${store.store_id})`);
-        }
-      } else {
-        // 新規作成
-        const { error } = await supabaseClient
-          .from('stores')
-          .insert([cleanStore]);
-
-        if (error) {
-          console.error(`店舗作成エラー (${store.store_id}):`, error);
-          errors.push(`店舗${store.store_id}の作成に失敗: ${error.message}`);
-        } else {
-          savedCount++;
-          console.log(`店舗作成完了: ${store.store_name} (${store.store_id})`);
-        }
-      }
-    } catch (error) {
-      console.error(`店舗処理エラー (${store.store_id}):`, error);
-      errors.push(`店舗${store.store_id}の処理エラー: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
+async function saveStoreData(storeData: ProcessedData, errors: string[]): Promise<number> {
+  // 店舗データの型ガード
+  if (storeData.dataType !== 'stores' || !storeData.data || typeof storeData.data !== 'object') {
+    errors.push('無効な店舗データ形式');
+    return 0;
   }
-  
-  // 店舗詳細情報の保存（基本情報の保存が成功した場合のみ）
-  if (storeDetails.length > 0 && savedCount > 0) {
-    try {
-      console.log(`店舗詳細データ処理開始: ${storeDetails.length}件`);
-      
-      // 保存された店舗IDのみを対象にフィルタ
-      const savedStoreIds = stores
-        .filter((_: any, index: number) => index < savedCount)
-        .map((store: any) => store.store_id);
-      
-      const validStoreDetails = storeDetails.filter((detail: any) => 
-        savedStoreIds.includes(detail.store_id)
-      );
-      
-      console.log(`有効な店舗詳細データ: ${validStoreDetails.length}件`);
-      
-      // upsert処理で既存データは更新、新データは追加
-      const BATCH_SIZE = 100;
-      let detailsSavedCount = 0;
-      
-      for (let i = 0; i < validStoreDetails.length; i += BATCH_SIZE) {
-        const batch = validStoreDetails.slice(i, i + BATCH_SIZE);
-        
-        // データのクリーニング
-        const cleanBatch = batch.map((detail: any) => 
-          Object.fromEntries(
-            Object.entries(detail).filter(([_, value]) => value !== undefined && value !== null)
-          )
-        );
-        
-        const { data: upsertData, error: upsertError } = await supabaseClient
-          .from('store_details')
-          .upsert(cleanBatch, { 
-            onConflict: 'store_id,element', // ユニーク制約に基づく
-            ignoreDuplicates: false 
-          })
-          .select();
-          
-        if (upsertError) {
-          console.error(`店舗詳細バッチupsertエラー (${i}-${i + batch.length}):`, upsertError);
-          errors.push(`店舗詳細バッチ${i}-${i + batch.length}のupsertに失敗: ${upsertError.message}`);
-        } else {
-          detailsSavedCount += upsertData?.length || batch.length;
-          console.log(`店舗詳細バッチupsert完了: ${i}-${i + batch.length} (${batch.length}件)`);
-        }
-      }
-      
-      console.log(`店舗詳細データupsert完了: ${detailsSavedCount}件処理`);
-      
-    } catch (error) {
-      console.error('店舗詳細データupsertエラー:', error);
-      errors.push(`店舗詳細データのupsertに失敗: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  } else if (storeDetails.length > 0 && savedCount === 0) {
-    errors.push('基本店舗情報の保存に失敗したため、店舗詳細データは保存されませんでした');
-  }
-  
-  return savedCount;
-}
 
-/**
- * 機種データの保存（既存処理）
- */
-async function saveMachineData(machines: any[], errors: string[]): Promise<number> {
-  const BATCH_SIZE = 50;
-  let savedCount = 0;
+  const data = storeData.data as { stores: any[]; store_details: any[] };
   
-  for (let i = 0; i < machines.length; i += BATCH_SIZE) {
-    const batch = machines.slice(i, i + BATCH_SIZE);
+  if (!data.stores || !Array.isArray(data.stores) || data.stores.length === 0) {
+    errors.push('店舗基本情報が見つかりません');
+    return 0;
+  }
+
+  try {
+    console.log('店舗データ保存開始: 基本情報' + data.stores.length + '件、詳細情報' + (data.store_details?.length || 0) + '件');
     
-    try {
-      const { data, error } = await supabaseClient
-        .from('machines')
-        .upsert(batch, { 
-          onConflict: 'machine_id',
-          ignoreDuplicates: false 
-        })
-        .select();
-
-      if (error) {
-        console.error(`機種バッチ保存エラー (${i}-${i + batch.length}):`, error);
-        errors.push(`機種バッチ${i}-${i + batch.length}の保存に失敗: ${error.message}`);
-      } else {
-        savedCount += data?.length || 0;
-        console.log(`機種バッチ保存完了: ${i}-${i + batch.length} (${data?.length || 0}件)`);
-      }
-    } catch (error) {
-      console.error(`機種バッチ処理エラー (${i}-${i + batch.length}):`, error);
-      errors.push(`機種バッチ${i}-${i + batch.length}の処理エラー`);
+    // 最初の店舗の基本情報を保存
+    const storeInfo = data.stores[0];
+    const { error: storeError } = await supabaseClient
+      .from('stores')
+      .upsert(storeInfo, { onConflict: 'store_id' });
+    
+    if (storeError) {
+      throw new Error(`店舗基本情報保存エラー: ${storeError.message}`);
     }
+    
+    console.log('店舗作成完了: ' + storeInfo.store_name + ' (' + storeInfo.store_id + ')');
+    
+    // 店舗詳細情報を処理
+    if (data.store_details && Array.isArray(data.store_details) && data.store_details.length > 0) {
+      console.log('店舗詳細データ処理開始: ' + data.store_details.length + '件');
+      
+      // 有効なデータのみフィルタリング
+      const validDetails = data.store_details.filter(detail => 
+        detail.element && detail.information && detail.information.trim() !== ''
+      );
+      
+      console.log('有効な店舗詳細データ: ' + validDetails.length + '件');
+      
+      if (validDetails.length > 0) {
+        // バッチでupsert
+        const BATCH_SIZE = 100;
+        for (let i = 0; i < validDetails.length; i += BATCH_SIZE) {
+          const batch = validDetails.slice(i, i + BATCH_SIZE);
+          const batchEnd = Math.min(i + BATCH_SIZE - 1, validDetails.length - 1);
+          
+          const { error: detailError } = await supabaseClient
+            .from('store_details')
+            .upsert(batch, { onConflict: 'store_id,element' });
+          
+          if (detailError) {
+            throw new Error(`店舗詳細バッチupsertエラー (${i}-${batchEnd}): ${detailError.message}`);
+          }
+          
+          console.log(`店舗詳細バッチupsert完了: ${i}-${batchEnd} (${batch.length}件)`);
+        }
+        
+        console.log('店舗詳細データupsert完了: ' + validDetails.length + '件処理');
+      }
+    }
+    
+    return 1;
+  } catch (error) {
+    console.error('店舗データ保存エラー:', error);
+    if (error instanceof Error) {
+      errors.push(error.message);
+    }
+    return 0;
   }
-  
-  return savedCount;
 }
 
 /**
  * GET: API状態確認
  */
-export async function GET(request: NextRequest) {
-  return NextResponse.json({
-    success: true,
-    message: 'CSV Upload API is running',
-    timestamp: new Date().toISOString(),
-    environment: {
-      SUPABASE_URL: !!process.env.SUPABASE_URL,
-      SUPABASE_SERVICE_ROLE_KEY: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
-      NODE_ENV: process.env.NODE_ENV
-    },
-    supportedTypes: ['store', 'store_production_info', 'machines', 'event']
+export async function GET(): Promise<NextResponse> {
+  return NextResponse.json({ 
+    message: 'CSV アップロード API',
+    methods: ['POST'],
+    version: '1.0.0'
   });
 }
 
 /**
  * データ統計を取得
  */
-export async function HEAD(request: NextRequest) {
-  try {
-    // 現在のデータベース統計を取得
-    const [storesCount, machinesCount, eventsCount, performancesCount] = await Promise.all([
-      supabaseClient.from('stores').select('*', { count: 'exact', head: true }),
-      supabaseClient.from('machines').select('*', { count: 'exact', head: true }),
-      supabaseClient.from('events').select('*', { count: 'exact', head: true }),
-      supabaseClient.from('store_performances').select('*', { count: 'exact', head: true })
-    ]);
-
-    const stats = {
-      stores: storesCount.count || 0,
-      machines: machinesCount.count || 0,
-      events: eventsCount.count || 0,
-      performances: performancesCount.count || 0,
-      lastUpdated: new Date().toISOString()
-    };
-
-    return new NextResponse(null, {
-      headers: {
-        'X-Data-Stats': JSON.stringify(stats),
-        'Cache-Control': 'no-cache'
-      }
-    });
-
-  } catch (error) {
-    console.error('統計取得エラー:', error);
-    return new NextResponse(null, { status: 500 });
-  }
+export async function HEAD(): Promise<NextResponse> {
+  return new NextResponse(null, { status: 200 });
 } 
