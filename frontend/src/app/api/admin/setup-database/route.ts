@@ -19,10 +19,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+// Supabaseクライアントは実行時に初期化
+function getSupabaseClient() {
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  
+  if (!supabaseUrl || !supabaseKey) {
+    throw new Error('Supabase環境変数が設定されていません');
+  }
+  
+  return createClient(supabaseUrl, supabaseKey);
+}
 
 /**
  * テーブル作成SQL文
@@ -220,6 +227,7 @@ async function checkDatabaseStructure() {
     // 各テーブルの存在チェックとレコード数取得
     for (const table of requiredTables) {
       try {
+        const supabase = getSupabaseClient();
         const { count } = await supabase
           .from(table)
           .select('*', { count: 'exact', head: true });
@@ -269,6 +277,7 @@ async function executeSql(sql: string) {
     
     try {
       // Supabaseのクエリビルダーではなく、rpcを使用
+      const supabase = getSupabaseClient();
       const { error } = await supabase.rpc('exec_sql', { 
         sql_statement: trimmedStatement 
       });
@@ -297,6 +306,7 @@ async function createTablesManually() {
   
   // システム設定テーブルから作成（依存関係なし）
   try {
+    const supabase = getSupabaseClient();
     await supabase.from('system_settings').select('*').limit(1);
     console.log('system_settingsテーブルは既に存在します');
   } catch {
@@ -311,6 +321,15 @@ async function createTablesManually() {
  */
 export async function GET(request: NextRequest) {
   try {
+    // 環境変数チェック
+    if (!process.env.SUPABASE_URL && !process.env.NEXT_PUBLIC_SUPABASE_URL) {
+      return NextResponse.json({
+        success: false,
+        error: 'Supabase環境変数が設定されていません',
+        status: { connected: false, tablesExist: false }
+      }, { status: 500 });
+    }
+    
     const status = await checkDatabaseStructure();
     
     return NextResponse.json({
