@@ -11,17 +11,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import { dbHelpers } from '../../../../lib/supabase';
 
 // 型定義
-interface StoreRanking {
-  store_id: string;
-  store_name: string;
-  prefecture: string;
-  nearest_station: string;
-  total_score: number;
-  predicted_win_rate: number;
-  llm_comment: string;
-  rank: number;
-  analysis_date: string;
-}
+// interface StoreRanking {
+//   store_id: string;
+//   store_name: string;
+//   prefecture: string;
+//   nearest_station: string;
+//   total_score: number;
+//   predicted_win_rate: number;
+//   llm_comment: string;
+//   rank: number;
+//   analysis_date: string;
+// }
 
 interface StoreRankingQuery {
   /** 検索クエリ（店舗名・駅名） */
@@ -88,7 +88,7 @@ export async function GET(request: NextRequest) {
     let filteredRankings = storeRankings;
     
     if (query.prefecture) {
-      filteredRankings = filteredRankings.filter((store: any) => 
+      filteredRankings = filteredRankings.filter((store: { prefecture: string }) => 
         store.prefecture === query.prefecture
       );
       console.log(`都道府県フィルタ後: ${filteredRankings.length}件`);
@@ -96,7 +96,7 @@ export async function GET(request: NextRequest) {
     
     if (query.search) {
       const searchTerm = query.search.toLowerCase();
-      filteredRankings = filteredRankings.filter((store: any) =>
+      filteredRankings = filteredRankings.filter((store: { store_name: string; nearest_station: string }) =>
         store.store_name.toLowerCase().includes(searchTerm) ||
         store.nearest_station.toLowerCase().includes(searchTerm)
       );

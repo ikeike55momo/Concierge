@@ -350,7 +350,7 @@ export class StoreScoreCalculator {
    */
   private static calculateConfidence(
     historicalData?: PerformanceMetrics[], 
-    current?: PerformanceMetrics
+    _current?: PerformanceMetrics
   ): number {
     let confidence = 70; // ベース信頼度
     

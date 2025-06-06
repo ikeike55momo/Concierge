@@ -48,7 +48,6 @@ const getStatusText = (score: number): string => {
 };
 
 const StoreCard: React.FC<StoreCardProps> = ({
-  storeId,
   storeName,
   score,
   predictedWinRate,

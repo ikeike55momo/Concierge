@@ -9,7 +9,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import StoreCard from '../../../components/StoreCard';
+// import StoreCard from '../../../components/StoreCard';
 
 interface StoreRanking {
   storeId: string;
@@ -40,7 +40,7 @@ export default function StoresPage() {
         const result = await response.json();
         
         if (result.success && result.data) {
-          const apiData: StoreRanking[] = result.data.map((store: any) => ({
+          const apiData: StoreRanking[] = result.data.map((store: { store_id: string; store_name: string; total_score: number; predicted_win_rate: number; llm_comment: string; rank: number; prefecture: string; nearest_station: string }) => ({
             storeId: store.store_id,
             storeName: store.store_name,
             score: store.total_score,
