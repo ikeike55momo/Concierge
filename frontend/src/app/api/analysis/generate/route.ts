@@ -38,10 +38,10 @@ export async function POST(request: NextRequest) {
     const analysisDate = body.analysisDate || new Date().toISOString().split('T')[0];
     const analysisType = body.analysisType || 'daily';
 
-    // Claude APIキーをチェック
-    const claudeApiKey = process.env.CLAUDE_API_KEY;
-    if (!claudeApiKey && !body.useTestData) {
-      console.warn('Claude API キーが設定されていません。テストデータを使用します。');
+      // Claude APIキーをチェック
+  const claudeApiKey = process.env.ANTHROPIC_API_KEY;
+  if (!claudeApiKey && !body.useTestData) {
+    console.warn('Claude API キーが設定されていません。テストデータを使用します。');
     }
 
     try {

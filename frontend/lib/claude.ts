@@ -99,8 +99,8 @@ export class ClaudeAnalysisClient {
   private readonly baseUrl = 'https://api.anthropic.com/v1';
   private readonly model: string;
 
-  constructor(apiKey?: string, model = 'claude-3-haiku-20240307') {
-    this.apiKey = apiKey || process.env.CLAUDE_API_KEY || '';
+  constructor(apiKey?: string, model = 'claude-3-5-sonnet-20241022') {
+    this.apiKey = apiKey || process.env.ANTHROPIC_API_KEY || '';
     this.model = model;
 
     if (!this.apiKey) {
